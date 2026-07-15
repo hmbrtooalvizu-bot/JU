@@ -329,37 +329,7 @@ export default function LoginView({ records, onLoginSuccess, onSwitchToRegister,
             </button>
           </div>
 
-          {/* Demo account helper */}
-          <div className="border-t border-slate-150 pt-4 mt-2">
-            <div className="bg-amber-50/50 rounded-xl border border-amber-200/60 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <Sparkles className="w-2.5 h-2.5" />
-                  Modo Demostración
-                </span>
-                <button
-                  type="button"
-                  onClick={fillDemoLogin}
-                  className="text-[10px] text-blue-800 hover:text-blue-900 font-bold hover:underline"
-                >
-                  Autocompletar Datos Demo
-                </button>
-              </div>
-              <p className="text-[11px] text-amber-900 leading-normal">
-                Para probar el portal de seguimiento al instante sin completar el formulario, puede ingresar con las credenciales de la familia Pérez Ramos.
-              </p>
-              <div className="grid grid-cols-2 gap-2 text-[10px] bg-white p-2 rounded-lg border border-amber-100 font-mono text-slate-600">
-                <div>
-                  <span className="block text-slate-400">Usuario:</span>
-                  <span className="font-bold text-slate-800">FAM-3209</span>
-                </div>
-                <div>
-                  <span className="block text-slate-400">Contraseña:</span>
-                  <span className="font-bold text-slate-800">10203040</span>
-                </div>
-              </div>
-            </div>
-          </div>
+
         </form>
       </div>
     </motion.div>

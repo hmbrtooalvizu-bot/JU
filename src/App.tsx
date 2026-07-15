@@ -223,6 +223,7 @@ export default function App() {
 
   // Sync apoderado with papa data
   useEffect(() => {
+    if (isFormSimple) return;
     if (apoderadoTipo === 'papa') {
       setFormState(prev => ({
         ...prev,
@@ -236,6 +237,7 @@ export default function App() {
       }));
     }
   }, [
+    isFormSimple,
     apoderadoTipo, 
     papaNombres, 
     papaApePat, 
@@ -256,6 +258,7 @@ export default function App() {
 
   // Sync apoderado with mama data
   useEffect(() => {
+    if (isFormSimple) return;
     if (apoderadoTipo === 'mama') {
       setFormState(prev => ({
         ...prev,
@@ -269,6 +272,7 @@ export default function App() {
       }));
     }
   }, [
+    isFormSimple,
     apoderadoTipo, 
     mamaNombres, 
     mamaApePat, 
@@ -811,6 +815,11 @@ export default function App() {
               setSedeLevels={setSedeLevels}
               sedeAddresses={sedeAddresses}
               setSedeAddresses={setSedeAddresses}
+              onDeleteRecord={(id) => {
+                const updated = records.filter(r => r.id !== id);
+                setRecords(updated);
+                localStorage.setItem('jc_admissions_records', JSON.stringify(updated));
+              }}
             />
           ) : (
             <DashboardView 

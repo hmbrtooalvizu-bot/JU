@@ -45,6 +45,7 @@ interface AdminDashboardViewProps {
   onSaveRecord: (record: AdmissionRecord) => void;
   onLogout: () => void;
   triggerToast: (msg: string) => void;
+  onDeleteRecord?: (id: string) => void;
   
   // Dynamic Districts, Headquarters, Grades & Levels props
   dynamicDistritos: string[];
@@ -64,6 +65,7 @@ export default function AdminDashboardView({
   onSaveRecord, 
   onLogout, 
   triggerToast,
+  onDeleteRecord,
   dynamicDistritos,
   setDynamicDistritos,
   dynamicSedesMap,
@@ -77,6 +79,14 @@ export default function AdminDashboardView({
 }: AdminDashboardViewProps) {
   // Navigation tabs within Admin Dashboard
   const [activeTab, setActiveTab] = useState<'applicants' | 'appointments' | 'users' | 'branches_districts' | 'reports'>('applicants');
+
+  // Custom confirmation modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Drag and drop states for columns
   const [draggedDistrictIndex, setDraggedDistrictIndex] = useState<number | null>(null);
@@ -173,21 +183,26 @@ export default function AdminDashboardView({
     
     let confirmMsg = `¿Está seguro de eliminar el distrito "${name}"?`;
     if (hasSedes) {
-      confirmMsg += `\n⚠️ ADVERTENCIA: Se eliminarán también todas las sedes asociadas a este distrito.`;
+      confirmMsg += `\n\n⚠️ ADVERTENCIA: Se eliminarán también todas las sedes asociadas a este distrito.`;
     }
     if (hasApplicants) {
-      confirmMsg += `\n⚠️ ADVERTENCIA: Existen expedientes de postulación registrados en este distrito.`;
+      confirmMsg += `\n\n⚠️ ADVERTENCIA: Existen expedientes de postulación registrados en este distrito.`;
     }
 
-    if (!window.confirm(confirmMsg)) return;
+    setConfirmModal({
+      isOpen: true,
+      title: "Eliminar Distrito",
+      message: confirmMsg,
+      onConfirm: () => {
+        setDynamicDistritos(dynamicDistritos.filter(d => d !== name));
 
-    setDynamicDistritos(dynamicDistritos.filter(d => d !== name));
+        const updatedSedesMap = { ...dynamicSedesMap };
+        delete updatedSedesMap[name];
+        setDynamicSedesMap(updatedSedesMap);
 
-    const updatedSedesMap = { ...dynamicSedesMap };
-    delete updatedSedesMap[name];
-    setDynamicSedesMap(updatedSedesMap);
-
-    triggerToast(`🗑️ Distrito "${name}" eliminado.`);
+        triggerToast(`🗑️ Distrito "${name}" eliminado.`);
+      }
+    });
   };
 
   // Drag and Drop reordering handlers
@@ -325,36 +340,41 @@ export default function AdminDashboardView({
     
     let confirmMsg = `¿Está seguro de eliminar la sede "${name}" del distrito "${selectedConfigDistrict}"?`;
     if (hasApplicants) {
-      confirmMsg += `\n⚠️ ADVERTENCIA: Existen alumnos postulando a esta sede.`;
+      confirmMsg += `\n\n⚠️ ADVERTENCIA: Existen alumnos postulando a esta sede.`;
     }
 
-    if (!window.confirm(confirmMsg)) return;
+    setConfirmModal({
+      isOpen: true,
+      title: "Eliminar Sede",
+      message: confirmMsg,
+      onConfirm: () => {
+        const currentSedes = dynamicSedesMap[selectedConfigDistrict] || [];
+        setDynamicSedesMap({
+          ...dynamicSedesMap,
+          [selectedConfigDistrict]: currentSedes.filter(s => s !== name)
+        });
 
-    const currentSedes = dynamicSedesMap[selectedConfigDistrict] || [];
-    setDynamicSedesMap({
-      ...dynamicSedesMap,
-      [selectedConfigDistrict]: currentSedes.filter(s => s !== name)
+        setSedeCapacities(prev => {
+          const copy = { ...prev };
+          delete copy[name];
+          return copy;
+        });
+
+        setSedeLevels(prev => {
+          const copy = { ...prev };
+          delete copy[name];
+          return copy;
+        });
+
+        setSedeAddresses(prev => {
+          const copy = { ...prev };
+          delete copy[name];
+          return copy;
+        });
+
+        triggerToast(`🗑️ Sede "${name}" eliminada.`);
+      }
     });
-
-    setSedeCapacities(prev => {
-      const copy = { ...prev };
-      delete copy[name];
-      return copy;
-    });
-
-    setSedeLevels(prev => {
-      const copy = { ...prev };
-      delete copy[name];
-      return copy;
-    });
-
-    setSedeAddresses(prev => {
-      const copy = { ...prev };
-      delete copy[name];
-      return copy;
-    });
-
-    triggerToast(`🗑️ Sede "${name}" eliminada.`);
   };
 
   // Handler functions for Grades
@@ -404,13 +424,18 @@ export default function AdminDashboardView({
     const hasApplicants = records.some(r => r.formState.postulacion.gradoIngreso === value);
     let confirmMsg = `¿Está seguro de eliminar el grado "${label}"?`;
     if (hasApplicants) {
-      confirmMsg += `\n⚠️ ADVERTENCIA: Existen expedientes registrados en este grado.`;
+      confirmMsg += `\n\n⚠️ ADVERTENCIA: Existen expedientes registrados en este grado.`;
     }
 
-    if (!window.confirm(confirmMsg)) return;
-
-    setDynamicGrados(dynamicGrados.filter(g => g.value !== value));
-    triggerToast(`🗑️ Grado "${label}" eliminado.`);
+    setConfirmModal({
+      isOpen: true,
+      title: "Eliminar Grado",
+      message: confirmMsg,
+      onConfirm: () => {
+        setDynamicGrados(dynamicGrados.filter(g => g.value !== value));
+        triggerToast(`🗑️ Grado "${label}" eliminado.`);
+      }
+    });
   };
 
   // Search & Filter States
@@ -764,28 +789,52 @@ export default function AdminDashboardView({
 
   // Perform soft delete
   const handleDeleteApplicant = (app: AdmissionRecord) => {
-    const confirmDelete = window.confirm(`¿Está seguro de eliminar el expediente de ${app.formState.personales.nombres} ${app.formState.personales.apellidoPaterno}?`);
-    if (!confirmDelete) return;
-
-    const updated: AdmissionRecord = {
-      ...app,
-      isDeleted: true
-    };
-    onSaveRecord(updated);
-    addAuditLog('Eliminación de Postulante', `Se eliminó temporalmente el expediente del alumno ${app.formState.personales.nombres} ${app.formState.personales.apellidoPaterno}.`, app.id);
-    setSelectedApplicant(null);
-    triggerToast("🗑️ Registro enviado a la papelera (petición de eliminación registrada).");
+    const name = `${app.formState.personales.nombres} ${app.formState.personales.apellidoPaterno}`;
+    setConfirmModal({
+      isOpen: true,
+      title: "Enviar a Papelera",
+      message: `¿Está seguro de eliminar el expediente de ${name}?`,
+      onConfirm: () => {
+        const updated: AdmissionRecord = {
+          ...app,
+          isDeleted: true
+        };
+        onSaveRecord(updated);
+        addAuditLog('Eliminación de Postulante', `Se eliminó temporalmente el expediente del alumno ${name}.`, app.id);
+        setSelectedApplicant(null);
+        triggerToast("🗑️ Registro enviado a la papelera (petición de eliminación registrada).");
+      }
+    });
   };
 
   // Perform restore of soft deleted record
   const handleRestoreApplicant = (app: AdmissionRecord) => {
+    const name = `${app.formState.personales.nombres} ${app.formState.personales.apellidoPaterno}`;
     const updated: AdmissionRecord = {
       ...app,
       isDeleted: false
     };
     onSaveRecord(updated);
-    addAuditLog('Restauración de Postulante', `Se restauró satisfactoriamente el expediente del alumno ${app.formState.personales.nombres} ${app.formState.personales.apellidoPaterno}.`, app.id);
+    addAuditLog('Restauración de Postulante', `Se restauró satisfactoriamente el expediente del alumno ${name}.`, app.id);
     triggerToast("🔄 Registro restaurado con éxito a la lista principal.");
+  };
+
+  // Perform permanent delete of a record from the recycle bin
+  const handlePermanentDeleteApplicant = (id: string, name: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: "Eliminación Permanente",
+      message: `⚠️ ADVERTENCIA: ¿Está seguro de eliminar permanentemente el expediente de "${name}"?\nEsta acción es irreversible y se borrarán todos sus datos.`,
+      onConfirm: () => {
+        if (onDeleteRecord) {
+          onDeleteRecord(id);
+          addAuditLog('Eliminación Permanente', `Se eliminó permanentemente el expediente de ${name}.`, id);
+          triggerToast("🔥 Expediente eliminado permanentemente de manera definitiva.");
+        } else {
+          triggerToast("❌ Error: No se ha configurado la acción de eliminación definitiva.");
+        }
+      }
+    });
   };
 
   // Save the modified status of an applicant
@@ -1362,13 +1411,23 @@ export default function AdminDashboardView({
                                   {app.formState.postulacion.gradoIngreso} ({app.formState.postulacion.sedeLocal})
                                 </td>
                                 <td className="py-3 px-4 text-right">
-                                  <button
-                                    onClick={() => handleRestoreApplicant(app)}
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-3 rounded-lg text-[10px] transition flex items-center justify-center gap-1 ml-auto cursor-pointer"
-                                  >
-                                    <RefreshCw className="w-3.5 h-3.5" />
-                                    <span>Restaurar Expediente</span>
-                                  </button>
+                                  <div className="flex justify-end gap-1.5">
+                                    <button
+                                      onClick={() => handleRestoreApplicant(app)}
+                                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-2.5 rounded-lg text-[10px] transition flex items-center justify-center gap-1 cursor-pointer"
+                                    >
+                                      <RefreshCw className="w-3.5 h-3.5" />
+                                      <span>Restaurar</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handlePermanentDeleteApplicant(app.id, `${p.nombres} ${p.apellidoPaterno}`)}
+                                      className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2.5 rounded-lg text-[10px] transition flex items-center justify-center gap-1 cursor-pointer"
+                                      title="Eliminar permanentemente de manera definitiva"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <span>Eliminar Definitivo</span>
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1995,6 +2054,26 @@ export default function AdminDashboardView({
                                     })}
                                   </div>
                                 </div>
+
+                                {/* Dirección de la Sede */}
+                                <div className="border-t border-slate-100 pt-2 space-y-1">
+                                  <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">
+                                    Dirección de la Sede:
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={sedeAddresses[sede] || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setSedeAddresses(prev => ({
+                                        ...prev,
+                                        [sede]: val
+                                      }));
+                                    }}
+                                    placeholder="Av. Ejemplo N° 123..."
+                                    className="w-full text-[10px] px-2 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium focus:ring-1 focus:ring-blue-500 focus:outline-hidden"
+                                  />
+                                </div>
                               </div>
                             );
                           })
@@ -2378,6 +2457,54 @@ export default function AdminDashboardView({
                   className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded-xl text-xs transition cursor-pointer"
                 >
                   Cerrar Ventana
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CUSTOM CONFIRMATION DIALOG */}
+      <AnimatePresence>
+        {confirmModal && confirmModal.isOpen && (
+          <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-[9999]">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl max-w-md w-full overflow-hidden shadow-2xl border border-slate-200 flex flex-col p-6 space-y-4"
+            >
+              <div className="flex items-start gap-3">
+                <div className="bg-amber-50 p-2.5 rounded-full border border-amber-200 text-amber-600 shrink-0">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">
+                    {confirmModal.title}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 whitespace-pre-line leading-relaxed">
+                    {confirmModal.message}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmModal(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    confirmModal.onConfirm();
+                    setConfirmModal(null);
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs transition cursor-pointer"
+                >
+                  Confirmar
                 </button>
               </div>
             </motion.div>
