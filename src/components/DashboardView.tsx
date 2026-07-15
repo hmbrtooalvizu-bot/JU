@@ -20,7 +20,9 @@ import {
   Check,
   Copy,
   Clock,
-  Lock
+  Lock,
+  Users,
+  PlusCircle
 } from 'lucide-react';
 import { downloadConstanciaPDF } from '../utils/pdfGenerator';
 
@@ -30,6 +32,7 @@ interface DashboardViewProps {
   saveRecord: (record: any) => void;
   setCurrentUser: (record: any) => void;
   triggerToast: (msg: string) => void;
+  onRegisterSibling?: (siblingFormState: any) => void;
 }
 
 export default function DashboardView({ 
@@ -37,7 +40,8 @@ export default function DashboardView({
   records, 
   saveRecord, 
   setCurrentUser, 
-  triggerToast 
+  triggerToast,
+  onRegisterSibling
 }: DashboardViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<'ficha' | 'documentos' | 'cita' | 'matricula'>('ficha');
   
@@ -284,8 +288,74 @@ export default function DashboardView({
     triggerToast("📋 Datos de acceso copiados al portapapeles.");
   };
 
+  // Find all records belonging to the same family code
+  const familyRecords = React.useMemo(() => {
+    if (!currentUser || !currentUser.formState?.fichaFamilia?.codigoFamilia) return [];
+    return records.filter(r => 
+      !r.isDeleted && 
+      (r.formState?.fichaFamilia?.codigoFamilia === currentUser.formState?.fichaFamilia?.codigoFamilia || 
+       r.username === currentUser.username)
+    );
+  }, [records, currentUser]);
+
   return (
     <div className="w-full max-w-5xl space-y-6">
+      
+      {/* MULTI-CHILD EXPEDIENT SWITCHER & REGISTRATION BUTTON */}
+      <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-3xl p-6 shadow-xl border border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 no-print">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Users className="w-5 h-5 text-amber-400" />
+            <h3 className="font-extrabold text-sm uppercase tracking-wider text-slate-100">
+              Expedientes Familiares Vinculados
+            </h3>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed max-w-xl">
+            {familyRecords.length > 1 
+              ? `Usted tiene ${familyRecords.length} hijos registrados bajo la misma familia. Seleccione un alumno para visualizar o actualizar su expediente individual.`
+              : 'Usted puede registrar y gestionar múltiples hijos (hermanos) utilizando su mismo usuario de apoderado.'}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          {familyRecords.length > 1 && (
+            <div className="flex gap-1.5 flex-wrap bg-slate-800/80 p-1.5 rounded-2xl border border-slate-700/60 w-full sm:w-auto">
+              {familyRecords.map((rec) => {
+                const isSelected = rec.id === currentUser.id;
+                return (
+                  <button
+                    key={rec.id}
+                    type="button"
+                    onClick={() => {
+                      setCurrentUser(rec);
+                      triggerToast(`🔄 Expediente cambiado: ${rec.formState.personales.nombres}`);
+                    }}
+                    className={`px-3.5 py-2 rounded-xl text-[11px] font-black transition cursor-pointer select-none uppercase tracking-tight flex items-center gap-1.5 ${
+                      isSelected 
+                        ? 'bg-blue-600 text-white shadow-md' 
+                        : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+                    }`}
+                  >
+                    <span className="text-xs">👶</span>
+                    {rec.formState.personales.nombres.split(' ')[0]}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {onRegisterSibling && (
+            <button
+              type="button"
+              onClick={() => onRegisterSibling(currentUser.formState)}
+              className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-[11px] transition-all duration-150 flex items-center gap-2 shadow-lg hover:scale-101 active:scale-95 cursor-pointer uppercase tracking-wider w-full sm:w-auto justify-center"
+            >
+              <PlusCircle className="w-4 h-4" />
+              Registrar Otro Hijo
+            </button>
+          )}
+        </div>
+      </div>
       
       {/* 1. Header Banner & Student Profile */}
       <div className="bg-white rounded-3xl shadow-lg border border-slate-200/80 p-6 flex flex-col md:flex-row justify-between items-center gap-6 no-print">

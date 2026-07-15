@@ -323,6 +323,45 @@ export default function App() {
     });
   };
 
+  // Register another child (sibling) with same family and apoderado details
+  const handleRegisterSibling = (siblingFormState: FormState) => {
+    const cleanStudent = {
+      nombres: '',
+      apellidoPaterno: siblingFormState.personales.apellidoPaterno || '',
+      apellidoMaterno: siblingFormState.personales.apellidoMaterno || '',
+      tipoDocumento: 'DNI' as const,
+      numeroDocumento: '',
+      genero: 'Masculino' as const,
+      fechaNacimiento: '',
+      colegioProcedencia: '',
+      nivelGradoProcedencia: '',
+      celularContacto: '',
+      tipoColegioProcedencia: 'Colegio Particular' as const
+    };
+
+    const cleanPostulacion = {
+      ...siblingFormState.postulacion,
+      gradoIngreso: '',
+      nivelEducativo: '',
+      codigoAntiguo: ''
+    };
+
+    const nextFormState = {
+      ...siblingFormState,
+      personales: cleanStudent,
+      postulacion: cleanPostulacion
+    };
+
+    setFormState(nextFormState);
+    setCurrentUser(null);
+    setSubmitted(false);
+    setCurrentStep(1);
+    setDeclaroVeracidad(false);
+    setNewlyRegisteredCredentials(null);
+    setActiveView('form');
+    triggerToast("🔄 Datos de familia y apoderado conservados. Ingrese los datos del siguiente hijo.");
+  };
+
   // Clean error for a field when its value changes
   const clearFieldError = (fieldKey: string) => {
     if (errors[fieldKey]) {
@@ -514,6 +553,8 @@ export default function App() {
 
     const username = famCode;
     const password = respDni || '12345678';
+    const studentDni = formState.personales.numeroDocumento || Math.floor(100000 + Math.random() * 900000).toString();
+    const recordId = `${famCode}-${studentDni}`;
 
     // Update state with generated family code if empty
     const finalFormState = {
@@ -530,7 +571,7 @@ export default function App() {
     };
 
     const newRecord = {
-      id: famCode,
+      id: recordId,
       username,
       password,
       formState: finalFormState,
@@ -542,7 +583,8 @@ export default function App() {
       },
       appointment: null,
       status: isFormSimple ? 'pending_approval' : 'documents_pending',
-      assignedClassroom: null
+      assignedClassroom: null,
+      createdAt: new Date().toISOString()
     };
 
     saveRecord(newRecord);
@@ -828,6 +870,7 @@ export default function App() {
               saveRecord={saveRecord} 
               setCurrentUser={setCurrentUser} 
               triggerToast={triggerToast} 
+              onRegisterSibling={handleRegisterSibling}
             />
           )
         ) : activeView === 'login' ? (
@@ -3034,7 +3077,7 @@ export default function App() {
                   <button
                     onClick={() => {
                       // Log them in immediately and redirect to dashboard
-                      const found = records.find(r => r.id === newlyRegisteredCredentials.username);
+                      const found = records.find(r => r.id === newlyRegisteredCredentials.username || r.username === newlyRegisteredCredentials.username || r.formState?.fichaFamilia?.codigoFamilia === newlyRegisteredCredentials.username);
                       if (found) {
                         setCurrentUser(found);
                         setActiveView('dashboard');
@@ -3145,7 +3188,16 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="flex gap-3 w-full sm:w-auto">
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <button 
+                    onClick={() => {
+                      handleRegisterSibling(formState);
+                    }}
+                    className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3 px-5 rounded-xl border border-blue-600 shadow-md transition duration-150 text-sm text-center cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>Registrar Siguiente Hijo (Mismo Apoderado)</span>
+                  </button>
                   <button 
                     onClick={() => {
                       setSubmitted(false);
@@ -3157,7 +3209,7 @@ export default function App() {
                     }}
                     className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-700 font-bold py-3 px-5 rounded-xl border border-slate-300 shadow-sm transition duration-150 text-sm text-center cursor-pointer"
                   >
-                    Registrar Otra Ficha
+                    Registrar Desde Cero (Nueva Familia)
                   </button>
                 </div>
               </div>
