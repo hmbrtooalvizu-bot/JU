@@ -137,6 +137,78 @@ export default function AdminDashboardView({
   // Navigation tabs within Admin Dashboard
   const [activeTab, setActiveTab] = useState<'applicants' | 'appointments' | 'users' | 'branches_districts' | 'reports'>('applicants');
 
+  // Visible metrics customization states
+  const [isCustomizingDashboard, setIsCustomizingDashboard] = useState(false);
+  const [visibleMetrics, setVisibleMetrics] = useState<Record<string, boolean>>(() => {
+    const userKey = currentUser?.username || currentUser?.id || 'anonymous';
+    const stored = localStorage.getItem(`jc_visible_metrics_${userKey}`);
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {}
+    }
+    return {
+      total_applicants: true,
+      pending_approval: true,
+      ready_for_completion: true,
+      documents_pending: true,
+      documents_submitted: true,
+      documents_verified: true,
+      payments_pending: true,
+      payments_approved: true,
+      appointments_scheduled: true,
+      appointments_completed: true,
+      academic_scheduled: true,
+      academic_completed: true,
+      admitted: true,
+      enrolled: true,
+      waiting_list: true,
+      observed: true,
+      vacancies_available: true,
+      vacancies_occupied: true,
+      admission_revenue: true,
+    };
+  });
+
+  // Reload custom metrics when user changes
+  useEffect(() => {
+    const userKey = currentUser?.username || currentUser?.id || 'anonymous';
+    const stored = localStorage.getItem(`jc_visible_metrics_${userKey}`);
+    if (stored) {
+      try {
+        setVisibleMetrics(JSON.parse(stored));
+      } catch (e) {}
+    } else {
+      setVisibleMetrics({
+        total_applicants: true,
+        pending_approval: true,
+        ready_for_completion: true,
+        documents_pending: true,
+        documents_submitted: true,
+        documents_verified: true,
+        payments_pending: true,
+        payments_approved: true,
+        appointments_scheduled: true,
+        appointments_completed: true,
+        academic_scheduled: true,
+        academic_completed: true,
+        admitted: true,
+        enrolled: true,
+        waiting_list: true,
+        observed: true,
+        vacancies_available: true,
+        vacancies_occupied: true,
+        admission_revenue: true,
+      });
+    }
+  }, [currentUser]);
+
+  const handleSaveMetrics = (newMetrics: Record<string, boolean>) => {
+    const userKey = currentUser?.username || currentUser?.id || 'anonymous';
+    localStorage.setItem(`jc_visible_metrics_${userKey}`, JSON.stringify(newMetrics));
+    setVisibleMetrics(newMetrics);
+  };
+
   // Admission Fee local states
   const [tempAdmissionFee, setTempAdmissionFee] = useState<string>(admissionFee.toString());
   const [tempFeeActive, setTempFeeActive] = useState<boolean>(admissionFeeActive);
@@ -666,6 +738,193 @@ export default function AdminDashboardView({
   const countWaitingList = activeRecords.filter(r => r.status === 'waiting_list').length;
   const countObserved = activeRecords.filter(r => r.status === 'observed').length;
   const remainingVacancies = Math.max(0, TOTAL_VACANCIES_CAPACITY - countEnrolled);
+
+  const canViewIncome = hasPermission('Ver reportes') || hasPermission('Ver ingresos') || currentUser?.roleAdmin === 'Super Administrador';
+
+  const ALL_METRIC_CONFIGS = React.useMemo(() => [
+    {
+      key: 'total_applicants',
+      label: 'Total de Postulantes',
+      desc: 'Registrados Totales',
+      colorClass: 'bg-blue-50 text-blue-700 border-blue-100',
+      icon: Users,
+      isIncome: false,
+      getValue: () => countTotalApplicants,
+    },
+    {
+      key: 'pending_approval',
+      label: 'Preinscripciones Pendientes',
+      desc: 'Espera de Aprobación',
+      colorClass: 'bg-amber-50 text-amber-700 border-amber-100',
+      icon: Clock,
+      isIncome: false,
+      getValue: () => activeRecords.filter(r => r.status === 'pending_approval').length,
+    },
+    {
+      key: 'ready_for_completion',
+      label: 'Pendientes de Completar Ficha',
+      desc: 'Sin Ficha Técnica',
+      colorClass: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+      icon: Pencil,
+      isIncome: false,
+      getValue: () => activeRecords.filter(r => r.status === 'ready_for_completion').length,
+    },
+    {
+      key: 'documents_pending',
+      label: 'Pendientes de Documentos',
+      desc: 'Falta Adjuntar Doc.',
+      colorClass: 'bg-rose-50 text-rose-700 border-rose-100',
+      icon: AlertCircle,
+      isIncome: false,
+      getValue: () => activeRecords.filter(r => r.status === 'documents_pending').length,
+    },
+    {
+      key: 'documents_submitted',
+      label: 'Documentos Recibidos',
+      desc: 'Por Validar/Verificar',
+      colorClass: 'bg-sky-50 text-sky-700 border-sky-100',
+      icon: FileText,
+      isIncome: false,
+      getValue: () => activeRecords.filter(r => r.status === 'documents_submitted').length,
+    },
+    {
+      key: 'documents_verified',
+      label: 'Documentos Verificados',
+      desc: 'Doc. Verificados',
+      colorClass: 'bg-teal-50 text-teal-700 border-teal-100',
+      icon: FileCheck2,
+      isIncome: false,
+      getValue: () => activeRecords.filter(r => r.status === 'documents_verified').length,
+    },
+    {
+      key: 'payments_pending',
+      label: 'Pagos Pendientes de Validación',
+      desc: 'Depósitos por Aprobar',
+      colorClass: 'bg-orange-50 text-orange-700 border-orange-100',
+      icon: CreditCard,
+      isIncome: true,
+      getValue: () => activeRecords.filter(r => r.paymentState === 'pending').length,
+    },
+    {
+      key: 'payments_approved',
+      label: 'Pagos Aprobados',
+      desc: 'Abonos Confirmados',
+      colorClass: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+      icon: Check,
+      isIncome: true,
+      getValue: () => activeRecords.filter(r => r.paymentState === 'paid').length,
+    },
+    {
+      key: 'appointments_scheduled',
+      label: 'Citas Psicopedagógicas Programadas',
+      desc: 'Citas Agendadas',
+      colorClass: 'bg-violet-50 text-violet-700 border-violet-100',
+      icon: Calendar,
+      isIncome: false,
+      getValue: () => activeRecords.filter(r => !!r.appointment).length,
+    },
+    {
+      key: 'appointments_completed',
+      label: 'Citas Psicopedagógicas Realizadas',
+      desc: 'Entrevistas Evaluadas',
+      colorClass: 'bg-green-50 text-green-700 border-green-100',
+      icon: UserCheck,
+      isIncome: false,
+      getValue: () => activeRecords.filter(r => r.appointmentApproved).length,
+    },
+    {
+      key: 'academic_scheduled',
+      label: 'Evaluaciones Académicas Programadas',
+      desc: 'Conocimientos Agendados',
+      colorClass: 'bg-purple-50 text-purple-700 border-purple-100',
+      icon: School,
+      isIncome: false,
+      getValue: () => activeRecords.filter(r => !!r.academicEvaluation).length,
+    },
+    {
+      key: 'academic_completed',
+      label: 'Evaluaciones Académicas Realizadas',
+      desc: 'Exámenes Concluidos',
+      colorClass: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-100',
+      icon: Award,
+      isIncome: false,
+      getValue: () => activeRecords.filter(r => r.academicEvaluationApproved).length,
+    },
+    {
+      key: 'admitted',
+      label: 'Admitidos',
+      desc: 'Vacantes Asignadas',
+      colorClass: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+      icon: Award,
+      isIncome: false,
+      getValue: () => activeRecords.filter(r => r.status === 'admitted').length,
+    },
+    {
+      key: 'enrolled',
+      label: 'Matriculados',
+      desc: 'Matrícula Completa',
+      colorClass: 'bg-blue-50 text-blue-850 border-blue-100',
+      icon: UserCheck,
+      isIncome: false,
+      getValue: () => countEnrolled,
+    },
+    {
+      key: 'waiting_list',
+      label: 'Lista de Espera',
+      desc: 'En Cola de Asignación',
+      colorClass: 'bg-amber-50 text-amber-700 border-amber-100',
+      icon: Clock,
+      isIncome: false,
+      getValue: () => countWaitingList,
+    },
+    {
+      key: 'observed',
+      label: 'Observados',
+      desc: 'Con Errores Detectados',
+      colorClass: 'bg-red-50 text-red-700 border-red-100',
+      icon: AlertTriangle,
+      isIncome: false,
+      getValue: () => countObserved,
+    },
+    {
+      key: 'vacancies_available',
+      label: 'Vacantes Disponibles',
+      desc: 'Cupos Libres',
+      colorClass: 'bg-slate-50 text-slate-700 border-slate-100',
+      icon: Plus,
+      isIncome: false,
+      getValue: () => remainingVacancies,
+    },
+    {
+      key: 'vacancies_occupied',
+      label: 'Vacantes Ocupadas',
+      desc: 'Cupos Comprometidos',
+      colorClass: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+      icon: Check,
+      isIncome: false,
+      getValue: () => countEnrolled,
+    },
+    {
+      key: 'admission_revenue',
+      label: 'Ingresos por Derecho de Admisión',
+      desc: `${countPaid} Pagos Registrados`,
+      colorClass: 'bg-yellow-50 text-yellow-800 border-yellow-200',
+      icon: TrendingUp,
+      isIncome: true,
+      format: (val: number) => `S/. ${val.toLocaleString('es-PE')}`,
+      getValue: () => totalRevenue,
+    }
+  ], [
+    activeRecords,
+    countTotalApplicants,
+    countEnrolled,
+    countPaid,
+    countAppointments,
+    totalRevenue,
+    countWaitingList,
+    countObserved,
+    remainingVacancies
+  ]);
 
   // Filter applicants list based on criteria
   const filteredApplicants = activeRecords.filter(app => {
@@ -1529,105 +1788,79 @@ export default function AdminDashboardView({
             )}
           </div>
 
+          {/* Metrics Grid Header & Customization Button */}
+          {hasPermission('Ver estadísticas') && (
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-1 px-1">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <span>Indicadores de Admisión</span>
+              </h3>
+              <button
+                onClick={() => setIsCustomizingDashboard(true)}
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-850 flex items-center gap-1.5 transition bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl cursor-pointer border border-indigo-100"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Personalizar Dashboard</span>
+              </button>
+            </div>
+          )}
+
           {/* Metrics Grid */}
           {hasPermission('Ver estadísticas') ? (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Metric 1: Postulantes */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-                <div className="p-3 bg-blue-50 text-blue-700 rounded-xl">
-                  <Users className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Postulantes</span>
-                  <strong className="block text-xl font-black text-slate-900">{countTotalApplicants}</strong>
-                  <span className="text-[9px] text-slate-500 font-semibold block">Registrados Totales</span>
-                </div>
-              </div>
+            (() => {
+              const visibleList = ALL_METRIC_CONFIGS.filter(cfg => {
+                // Respect income permission restriction
+                if (cfg.isIncome && !canViewIncome) {
+                  return false;
+                }
+                return visibleMetrics[cfg.key] !== false;
+              });
 
-              {/* Metric 2: Matriculados */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-                <div className="p-3 bg-green-50 text-green-700 rounded-xl">
-                  <UserCheck className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Matriculados</span>
-                  <strong className="block text-xl font-black text-green-700">{countEnrolled}</strong>
-                  <span className="text-[9px] text-slate-500 font-semibold block">Vacantes Asignadas</span>
-                </div>
-              </div>
+              if (visibleList.length === 0) {
+                return (
+                  <div className="bg-slate-50 border border-dashed border-slate-300 rounded-3xl p-6 text-center space-y-2">
+                    <p className="text-xs text-slate-500 font-medium">Todos los indicadores estadísticos están ocultos.</p>
+                    <button
+                      onClick={() => setIsCustomizingDashboard(true)}
+                      className="text-xs font-bold text-indigo-600 hover:underline inline-flex items-center gap-1"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Personalizar Dashboard
+                    </button>
+                  </div>
+                );
+              }
 
-              {/* Metric 3: Ingresos Totales */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-                <div className="p-3 bg-amber-50 text-amber-700 rounded-xl">
-                  <TrendingUp className="w-6 h-6" />
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {visibleList.map(cfg => {
+                    const IconComponent = cfg.icon;
+                    const rawValue = cfg.getValue();
+                    const displayedValue = cfg.format ? cfg.format(rawValue) : rawValue;
+                    return (
+                      <div
+                        key={cfg.key}
+                        className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200"
+                      >
+                        <div className={`p-3 rounded-xl border ${cfg.colorClass} shrink-0`}>
+                          <IconComponent className="w-5 h-5 sm:w-6 sm:h-6" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate" title={cfg.label}>
+                            {cfg.label}
+                          </span>
+                          <strong className="block text-lg sm:text-xl font-black text-slate-900 truncate">
+                            {displayedValue}
+                          </strong>
+                          <span className="text-[9px] text-slate-500 font-semibold block truncate" title={cfg.desc}>
+                            {cfg.desc}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div>
-                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Ingresos</span>
-                  <strong className="block text-xl font-black text-amber-700">S/. {totalRevenue.toLocaleString('es-PE')}</strong>
-                  <span className="text-[9px] text-slate-500 font-semibold block">{countPaid} Pagos Registrados</span>
-                </div>
-              </div>
-
-              {/* Metric 4: Vacantes Libres */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-                <div className="p-3 bg-brand-blue/10 text-brand-blue rounded-xl">
-                  <Award className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Vacantes</span>
-                  <strong className="block text-xl font-black text-blue-900">{remainingVacancies} / {TOTAL_VACANCIES_CAPACITY}</strong>
-                  <span className="text-[9px] text-slate-500 font-semibold block">Disponibilidad Actual</span>
-                </div>
-              </div>
-
-              {/* Metric 5: Citas Programadas */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-                <div className="p-3 bg-indigo-50 text-indigo-700 rounded-xl">
-                  <Calendar className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Citas Psicología</span>
-                  <strong className="block text-xl font-black text-slate-900">{countAppointments}</strong>
-                  <span className="text-[9px] text-slate-500 font-semibold block">Agendadas Virtuales</span>
-                </div>
-              </div>
-
-              {/* Metric 6: Expedientes con Documentos */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-                <div className="p-3 bg-sky-50 text-sky-700 rounded-xl">
-                  <FileCheck2 className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Documentación</span>
-                  <strong className="block text-xl font-black text-slate-900">{countDocsVerified}</strong>
-                  <span className="text-[9px] text-slate-500 font-semibold block">Expedientes Validados</span>
-                </div>
-              </div>
-
-              {/* Metric 7: Lista de Espera */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-                <div className="p-3 bg-orange-50 text-orange-700 rounded-xl">
-                  <Clock className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Lista de Espera</span>
-                  <strong className="block text-xl font-black text-orange-700">{countWaitingList}</strong>
-                  <span className="text-[9px] text-slate-500 font-semibold block">Postulaciones en Fila</span>
-                </div>
-              </div>
-
-              {/* Metric 8: Observados */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-                <div className="p-3 bg-red-50 text-red-700 rounded-xl">
-                  <AlertTriangle className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Observados</span>
-                  <strong className="block text-xl font-black text-red-700">{countObserved}</strong>
-                  <span className="text-[9px] text-slate-500 font-semibold block">Fichas con Errores</span>
-                </div>
-              </div>
-            </div>
+              );
+            })()
           ) : (
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center">
               <span className="text-xs font-semibold text-slate-400 flex items-center justify-center gap-1.5">
@@ -3279,6 +3512,108 @@ export default function AdminDashboardView({
                   className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs transition cursor-pointer"
                 >
                   Confirmar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CUSTOMIZE DASHBOARD MODAL */}
+      <AnimatePresence>
+        {isCustomizingDashboard && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-xl w-full max-h-[85vh] overflow-hidden shadow-2xl border border-slate-200 flex flex-col"
+            >
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-indigo-50 text-indigo-700 rounded-xl">
+                    <Pencil className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-slate-900 uppercase">Personalizar Dashboard</h3>
+                    <p className="text-[10px] sm:text-[11px] text-slate-500">Configure qué indicadores desea visualizar en su pantalla principal.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsCustomizingDashboard(false)}
+                  className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Checkbox selector container */}
+              <div className="p-6 overflow-y-auto space-y-4 flex-1">
+                <p className="text-xs text-slate-500 font-medium">
+                  Marque o desmarque los indicadores para mostrar u ocultar las tarjetas correspondientes. Los cambios se guardarán automáticamente para su usuario.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  {ALL_METRIC_CONFIGS
+                    .filter(cfg => cfg.isIncome ? canViewIncome : true)
+                    .map(cfg => {
+                      const IconComponent = cfg.icon;
+                      const isChecked = visibleMetrics[cfg.key] !== false;
+                      return (
+                        <label
+                          key={cfg.key}
+                          className={`flex items-center gap-3 p-3 rounded-2xl border transition cursor-pointer select-none ${
+                            isChecked
+                              ? 'bg-indigo-50/40 border-indigo-200 text-indigo-950 font-bold'
+                              : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-500'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              const updated = {
+                                ...visibleMetrics,
+                                [cfg.key]: e.target.checked
+                              };
+                              handleSaveMetrics(updated);
+                            }}
+                            className="w-4.5 h-4.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                          />
+                          <div className={`p-1.5 rounded-lg border ${cfg.colorClass}`}>
+                            <IconComponent className="w-4 h-4" />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs truncate">{cfg.label}</span>
+                            <span className="text-[9px] text-slate-400 font-normal">{cfg.desc}</span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Modal footer actions */}
+              <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-between gap-3 shrink-0">
+                <button
+                  onClick={() => {
+                    // Activate all
+                    const allActive: Record<string, boolean> = {};
+                    ALL_METRIC_CONFIGS.forEach(cfg => {
+                      allActive[cfg.key] = true;
+                    });
+                    handleSaveMetrics(allActive);
+                    triggerToast("✨ Todos los indicadores han sido activados.");
+                  }}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-xl transition text-xs border border-slate-200 cursor-pointer"
+                >
+                  Activar todos
+                </button>
+                <button
+                  onClick={() => setIsCustomizingDashboard(false)}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-5 rounded-xl transition text-xs shadow-md cursor-pointer"
+                >
+                  Listo
                 </button>
               </div>
             </motion.div>

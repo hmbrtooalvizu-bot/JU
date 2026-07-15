@@ -67,6 +67,24 @@ import {
   DEFAULT_SEDE_ADDRESSES
 } from './data';
 
+function generateNextFamilyCode(existingRecords: any[]): string {
+  const activeFamilyCodes = new Set<string>();
+  existingRecords.forEach(r => {
+    if (!r.isDeleted && r.formState?.fichaFamilia?.codigoFamilia) {
+      activeFamilyCodes.add(r.formState.fichaFamilia.codigoFamilia.trim().toUpperCase());
+    }
+  });
+
+  let n = 1;
+  while (true) {
+    const candidate = `FAM-${String(n).padStart(4, '0')}`;
+    if (!activeFamilyCodes.has(candidate)) {
+      return candidate;
+    }
+    n++;
+  }
+}
+
 export default function App() {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [formState, setFormState] = useState<FormState>(initialFormState);
@@ -86,6 +104,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<any | null>(null);
   const [records, setRecords] = useState<any[]>([]);
   const [newlyRegisteredCredentials, setNewlyRegisteredCredentials] = useState<{ username: string; password: string } | null>(null);
+  const [siblingFamilyCode, setSiblingFamilyCode] = useState<string | null>(null);
 
   // Dynamic state for districts and headquarter branches
   const [districtsList, setDistrictsList] = useState<string[]>(() => {
@@ -372,6 +391,7 @@ export default function App() {
     };
 
     setFormState(nextFormState);
+    setSiblingFamilyCode(siblingFormState.fichaFamilia.codigoFamilia);
     setCurrentUser(null);
     setSubmitted(false);
     setCurrentStep(1);
@@ -555,7 +575,7 @@ export default function App() {
     }
 
     // Generate unique credentials and save record
-    const famCode = formState.fichaFamilia.codigoFamilia || `FAM-${Math.floor(1000 + Math.random() * 9000)}`;
+    const famCode = siblingFamilyCode || generateNextFamilyCode(records);
     const respVal = isFormSimple ? 'Apoderado' : formState.lugarAdicionales.responsableMatricula;
     let respDni = '';
     if (isFormSimple) {
@@ -608,6 +628,7 @@ export default function App() {
 
     saveRecord(newRecord);
     setNewlyRegisteredCredentials({ username, password });
+    setSiblingFamilyCode(null);
     
     // Let them auto-login later or immediately
     setFormState(finalFormState);
@@ -715,6 +736,7 @@ export default function App() {
                   setSubmitted(false);
                   setCurrentStep(1);
                   setFormState(initialFormState);
+                  setSiblingFamilyCode(null);
                   setDeclaroVeracidad(false);
                   triggerToast("Sesión cerrada. Formulario reiniciado.");
                 }}
@@ -865,6 +887,7 @@ export default function App() {
                 setSubmitted(false);
                 setCurrentStep(1);
                 setFormState(initialFormState);
+                setSiblingFamilyCode(null);
                 triggerToast("Sesión de administrador cerrada.");
               }}
               triggerToast={triggerToast}
@@ -3239,6 +3262,7 @@ export default function App() {
                       setSubmitted(false);
                       setCurrentStep(1);
                       setFormState(initialFormState);
+                      setSiblingFamilyCode(null);
                       setDeclaroVeracidad(false);
                       setNewlyRegisteredCredentials(null);
                       triggerToast("Formulario reiniciado.");
