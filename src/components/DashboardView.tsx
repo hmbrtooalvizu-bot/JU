@@ -29,6 +29,48 @@ import {
 } from 'lucide-react';
 import { downloadConstanciaPDF } from '../utils/pdfGenerator';
 
+interface DniDocument {
+  frontal: string | null;
+  posterior: string | null;
+}
+
+export function parseDniValue(val: string | null): DniDocument {
+  if (!val) {
+    return { frontal: null, posterior: null };
+  }
+  if (val.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(val);
+      return {
+        frontal: parsed.frontal || null,
+        posterior: parsed.posterior || null
+      };
+    } catch (e) {
+      // fallback
+    }
+  }
+  return {
+    frontal: val,
+    posterior: val
+  };
+}
+
+export function serializeDniValue(frontal: string | null, posterior: string | null): string | null {
+  if (!frontal && !posterior) return null;
+  return JSON.stringify({ frontal, posterior });
+}
+
+export function getDniComplete(val: string | null): boolean {
+  if (!val) return false;
+  if (!val.trim().startsWith('{')) return true;
+  try {
+    const parsed = JSON.parse(val);
+    return !!parsed.frontal && !!parsed.posterior;
+  } catch (e) {
+    return true;
+  }
+}
+
 interface DashboardViewProps {
   currentUser: any;
   records: any[];
@@ -160,9 +202,16 @@ export default function DashboardView({
   const SHARED_DOC_KEYS = ['dniApoderado', 'reciboServicio'];
   const uploadedCount = docsList.filter(doc => {
     const isShared = SHARED_DOC_KEYS.includes(doc.key);
+    const isDni = doc.key === 'dniApoderado' || doc.key === 'dniPostulante';
     return isShared
-      ? familyRecords.some(r => !!r.documents?.[doc.key])
-      : !!currentUser.documents?.[doc.key];
+      ? familyRecords.some(r => {
+          const val = r.documents?.[doc.key];
+          return isDni ? getDniComplete(val) : !!val;
+        })
+      : (() => {
+          const val = currentUser.documents?.[doc.key];
+          return isDni ? getDniComplete(val) : !!val;
+        })();
   }).length;
   const isDocsComplete = uploadedCount === docsList.length;
   const isApptBooked = !!currentUser.appointment;
@@ -340,7 +389,13 @@ export default function DashboardView({
       if (recordIsPrivate) reqDocs.push('constanciaNoAdeudo');
       if (recordIsConductRequired) reqDocs.push('cartaConducta');
 
-      return reqDocs.every(k => !!customDocs?.[k]);
+      return reqDocs.every(k => {
+        const val = customDocs?.[k];
+        if (k === 'dniApoderado' || k === 'dniPostulante') {
+          return getDniComplete(val);
+        }
+        return !!val;
+      });
     };
 
     const isCurrentUserComplete = checkDocsCompleteForRecord(currentUser, currentUserDocs);
@@ -419,7 +474,13 @@ export default function DashboardView({
         if (recordIsPrivate) reqDocs.push('constanciaNoAdeudo');
         if (recordIsConductRequired) reqDocs.push('cartaConducta');
 
-        const isComplete = reqDocs.every(k => !!updatedDocs[k]);
+        const isComplete = reqDocs.every(k => {
+          const val = updatedDocs[k];
+          if (k === 'dniApoderado' || k === 'dniPostulante') {
+            return getDniComplete(val);
+          }
+          return !!val;
+        });
         const newStatus = isComplete ? 'documents_submitted' : 'documents_pending';
 
         return {
@@ -583,6 +644,19 @@ export default function DashboardView({
               setCurrentUser(updated);
               setUploadingDoc(null);
               triggerToast(`✨ Foto de comprobante guardada con éxito.`);
+            } else if (docKey === 'dniApoderado' || docKey === 'dniPostulante') {
+              const currentVal = currentUser.documents?.[docKey] || null;
+              const parsed = parseDniValue(currentVal);
+              let nextVal = '';
+              if (!parsed.frontal) {
+                nextVal = serializeDniValue(`foto_${docKey}_frontal_capturada.jpg`, null) || '';
+                triggerToast(`✨ Foto de Cara Frontal de DNI guardada con éxito. Continuando al Paso 2...`);
+              } else {
+                nextVal = serializeDniValue(parsed.frontal, `foto_${docKey}_posterior_capturada.jpg`) || '';
+                triggerToast(`✨ Foto de Cara Posterior de DNI guardada con éxito. Documento completo.`);
+              }
+              handleUpdateDocumentState(docKey, nextVal);
+              setUploadingDoc(null);
             } else {
               handleUpdateDocumentState(docKey, simulatedFileName);
               setUploadingDoc(null);
@@ -607,9 +681,23 @@ export default function DashboardView({
           if (prev >= 100) {
             clearInterval(interval);
             setTimeout(() => {
-              handleUpdateDocumentState(docKey, file.name);
+              if (docKey === 'dniApoderado' || docKey === 'dniPostulante') {
+                const currentVal = currentUser.documents?.[docKey] || null;
+                const parsed = parseDniValue(currentVal);
+                let nextVal = '';
+                if (!parsed.frontal) {
+                  nextVal = serializeDniValue(file.name, null) || '';
+                  triggerToast(`✨ Cara Frontal de DNI cargada con éxito. Continuando al Paso 2...`);
+                } else {
+                  nextVal = serializeDniValue(parsed.frontal, file.name) || '';
+                  triggerToast(`✨ Cara Posterior de DNI cargada con éxito. Documento completo.`);
+                }
+                handleUpdateDocumentState(docKey, nextVal);
+              } else {
+                handleUpdateDocumentState(docKey, file.name);
+                triggerToast(`✨ El documento "${file.name}" se cargó con éxito.`);
+              }
               setUploadingDoc(null);
-              triggerToast(`✨ El documento "${file.name}" se cargó con éxito.`);
             }, 300);
             return 100;
           }
@@ -1800,12 +1888,112 @@ export default function DashboardView({
               {docsList.map((doc) => {
                 const SHARED_DOC_KEYS = ['dniApoderado', 'reciboServicio'];
                 const isShared = SHARED_DOC_KEYS.includes(doc.key);
+                const isDni = doc.key === 'dniApoderado' || doc.key === 'dniPostulante';
+
                 const isUploaded = isShared 
-                  ? familyRecords.some(r => !!r.documents?.[doc.key]) 
-                  : !!currentUser.documents?.[doc.key];
+                  ? familyRecords.some(r => {
+                      const val = r.documents?.[doc.key];
+                      return isDni ? getDniComplete(val) : !!val;
+                    }) 
+                  : (() => {
+                      const val = currentUser.documents?.[doc.key];
+                      return isDni ? getDniComplete(val) : !!val;
+                    })();
+
                 const fileName = isShared 
                   ? (familyRecords.find(r => !!r.documents?.[doc.key])?.documents?.[doc.key] || '')
                   : (currentUser.documents?.[doc.key] || '');
+
+                if (isDni) {
+                  const currentParsedDni = parseDniValue(fileName);
+                  const hasFront = !!currentParsedDni.frontal;
+                  const hasBack = !!currentParsedDni.posterior;
+                  const isComplete = hasFront && hasBack;
+
+                  return (
+                    <div key={doc.key} className="p-5 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col gap-4">
+                      {/* Title & Status */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <div className={`p-2 rounded-xl mt-0.5 shrink-0 ${isComplete ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-500'}`}>
+                            {isComplete ? <CheckCircle2 className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                          </div>
+                          <div>
+                            <span className="block text-xs font-bold text-slate-800">{doc.label}</span>
+                            <p className="text-[10px] text-slate-500 mt-0.5">Requiere cargar ambas caras del documento por separado.</p>
+                            
+                            {/* Face statuses */}
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1 ${hasFront ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                                {hasFront ? `✓ Cara Frontal: ${currentParsedDni.frontal}` : '✗ Cara Frontal: Pendiente'}
+                              </span>
+                              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1 ${hasBack ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                                {hasBack ? `✓ Cara Posterior: ${currentParsedDni.posterior}` : '✗ Cara Posterior: Pendiente'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {isComplete && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDoc(doc.key)}
+                            className="text-[11px] text-red-600 hover:text-red-700 font-extrabold hover:underline shrink-0"
+                          >
+                            Eliminar y volver a subir
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Upload / Capture flow */}
+                      {!isComplete && (
+                        <div className="p-3 bg-white rounded-xl border border-slate-150 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                          <div>
+                            <span className="text-[11px] font-extrabold text-blue-800 uppercase tracking-wider block">
+                              {!hasFront ? 'Paso 1: Cargar Cara Frontal' : 'Paso 2: Cargar Cara Posterior'}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              {!hasFront 
+                                ? 'Por favor, tome foto o suba archivo de la parte delantera de su DNI.' 
+                                : 'Excelente, ahora tome foto o suba archivo de la parte trasera.'}
+                            </span>
+                          </div>
+
+                          <div className="shrink-0 w-full sm:w-auto">
+                            {uploadingDoc === doc.key ? (
+                              <div className="flex items-center gap-2 text-xs font-bold text-blue-700">
+                                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                <span>Subiendo ({uploadProgress}%)</span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <label className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-bold py-1.5 px-3 rounded-lg text-xs transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer hover:scale-101 active:scale-95">
+                                  <Upload className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Cargar archivo</span>
+                                  <input
+                                    type="file"
+                                    accept=".pdf,image/*"
+                                    onChange={(e) => handleSimulatedUpload(doc.key, e)}
+                                    className="hidden"
+                                  />
+                                </label>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenCamera(doc.key)}
+                                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg text-xs transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer hover:scale-101 active:scale-95"
+                                >
+                                  <Camera className="w-3.5 h-3.5 text-white" />
+                                  <span>Tomar Foto</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
 
                 return (
                   <div key={doc.key} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">

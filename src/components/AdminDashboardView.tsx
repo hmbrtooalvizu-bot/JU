@@ -44,6 +44,32 @@ import {
   GradoOption
 } from '../data';
 
+interface DniDocument {
+  frontal: string | null;
+  posterior: string | null;
+}
+
+function parseDniValue(val: string | null): DniDocument {
+  if (!val) {
+    return { frontal: null, posterior: null };
+  }
+  if (val.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(val);
+      return {
+        frontal: parsed.frontal || null,
+        posterior: parsed.posterior || null
+      };
+    } catch (e) {
+      // fallback
+    }
+  }
+  return {
+    frontal: val,
+    posterior: val
+  };
+}
+
 interface AdminDashboardViewProps {
   currentUser: any;
   records: AdmissionRecord[];
@@ -3233,7 +3259,7 @@ export default function AdminDashboardView({
                 </div>
 
                 {/* 4. Documents checklist */}
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-4">
                   <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider">Documentos Cargados</h4>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                     {[
@@ -3242,24 +3268,192 @@ export default function AdminDashboardView({
                       { key: 'libretaEstudios', label: 'Libreta Notas' },
                       { key: 'constanciaNoAdeudo', label: 'No Adeudo' }
                     ].map(doc => {
-                      const isUploaded = !!selectedApplicant.documents?.[doc.key as any];
-                      const fileName = selectedApplicant.documents?.[doc.key as any];
+                      const isDni = doc.key === 'dniPostulante' || doc.key === 'dniApoderado';
+                      const rawVal = selectedApplicant.documents?.[doc.key as any];
+                      
+                      let isUploaded = false;
+                      let fileLabel = '';
+
+                      if (isDni) {
+                        const parsed = parseDniValue(rawVal);
+                        isUploaded = !!parsed.frontal && !!parsed.posterior;
+                        if (isUploaded) {
+                          fileLabel = 'Completo (Ambas caras)';
+                        } else if (parsed.frontal || parsed.posterior) {
+                          fileLabel = 'Incompleto (Falta una cara)';
+                        }
+                      } else {
+                        isUploaded = !!rawVal;
+                        fileLabel = rawVal || '';
+                      }
+
                       return (
                         <div key={doc.key} className="bg-white p-2.5 rounded-xl border border-slate-200 flex flex-col justify-between">
                           <span className="font-bold text-[10px] text-slate-400 uppercase tracking-wider block">{doc.label}</span>
                           {isUploaded ? (
-                            <span className="text-[10px] text-green-700 font-black mt-1.5 break-all">
-                              ✓ {fileName}
+                            <span className="text-[10px] text-green-700 font-black mt-1.5 break-all block">
+                              ✓ {fileLabel}
                             </span>
                           ) : (
-                            <span className="text-[10px] text-rose-500 font-bold mt-1.5 flex items-center gap-1">
-                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                              FALTA
-                            </span>
+                            <div className="mt-1.5">
+                              <span className="text-[10px] text-rose-500 font-bold flex items-center gap-1">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                FALTA
+                              </span>
+                              {fileLabel && (
+                                <span className="text-[9px] text-amber-600 font-semibold block mt-0.5 leading-tight">
+                                  {fileLabel}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* Inline visualizer for DNI Frontal & Posterior */}
+                  <div className="pt-2 border-t border-slate-200">
+                    <h5 className="text-[11px] font-bold uppercase text-slate-500 tracking-wider mb-3">Previsualización de Documentos DNI</h5>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* DNI Postulante */}
+                      <div className="bg-white p-3 rounded-xl border border-slate-200/80 space-y-2.5">
+                        <span className="font-extrabold text-[11px] text-slate-700 block border-b pb-1">DNI del Postulante</span>
+                        {(() => {
+                          const rawVal = selectedApplicant.documents?.['dniPostulante'];
+                          const parsed = parseDniValue(rawVal);
+                          const studentName = selectedApplicant.formState?.personales?.nombres || 'Postulante';
+                          const studentLastName = `${selectedApplicant.formState?.personales?.apellidoPaterno || ''} ${selectedApplicant.formState?.personales?.apellidoMaterno || ''}`.trim() || 'Apellidos';
+                          const studentDocNum = selectedApplicant.formState?.personales?.numeroDocumento || '00000000';
+                          const birthDate = selectedApplicant.formState?.personales?.fechaNacimiento || 'DD/MM/AAAA';
+                          const gender = selectedApplicant.formState?.personales?.genero || 'M/F';
+
+                          return (
+                            <div className="grid grid-cols-2 gap-3">
+                              {/* Frontal */}
+                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                                {parsed.frontal ? (
+                                  <div className="flex-1 flex flex-col justify-between">
+                                    <div className="flex justify-between items-start">
+                                      <div className="w-6 h-7 bg-indigo-200 border border-indigo-300 rounded flex items-center justify-center text-[8px] font-bold text-indigo-700 shrink-0">Foto</div>
+                                      <div className="text-right">
+                                        <span className="text-[8px] font-extrabold text-blue-600 block leading-tight font-mono">REPÚBLICA DEL PERÚ</span>
+                                        <span className="text-[7px] text-slate-400 block leading-none font-mono">DNI POSTULANTE</span>
+                                      </div>
+                                    </div>
+                                    <div className="text-[8px] space-y-0.5 mt-2 font-mono">
+                                      <p className="truncate"><span className="text-slate-400">Apellidos:</span> <strong className="text-slate-700">{studentLastName}</strong></p>
+                                      <p className="truncate"><span className="text-slate-400">Nombres:</span> <strong className="text-slate-700">{studentName}</strong></p>
+                                      <p className="truncate"><span className="text-slate-400">Nº Doc:</span> <strong className="text-blue-700 font-extrabold">{studentDocNum}</strong></p>
+                                    </div>
+                                    <span className="text-[8px] text-green-700 font-bold bg-green-100 px-1.5 py-0.5 rounded mt-2 text-center block truncate">
+                                      ✓ Cara Frontal
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex-1 flex flex-col items-center justify-center text-center p-2">
+                                    <AlertCircle className="w-6 h-6 text-slate-300 mb-1" />
+                                    <span className="text-[9px] text-slate-400 font-semibold leading-tight">Cara Frontal no cargada</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Posterior */}
+                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                                {parsed.posterior ? (
+                                  <div className="flex-1 flex flex-col justify-between">
+                                    <div className="w-full h-2 bg-slate-400 rounded-sm mb-1"></div>
+                                    <div className="text-[8px] space-y-0.5 font-mono">
+                                      <p className="truncate"><span className="text-slate-400">F. Nac:</span> <strong className="text-slate-700">{birthDate}</strong></p>
+                                      <p className="truncate"><span className="text-slate-400">Sexo:</span> <strong className="text-slate-700">{gender}</strong></p>
+                                    </div>
+                                    <div className="border border-dashed border-slate-300 p-1 rounded bg-white text-center mt-2">
+                                      <span className="text-[6px] text-slate-400 block tracking-widest font-mono">|||||| |||| || |||||</span>
+                                    </div>
+                                    <span className="text-[8px] text-indigo-700 font-bold bg-indigo-100 px-1.5 py-0.5 rounded mt-2 text-center block truncate">
+                                      ✓ Cara Posterior
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex-1 flex flex-col items-center justify-center text-center p-2">
+                                    <AlertCircle className="w-6 h-6 text-slate-300 mb-1" />
+                                    <span className="text-[9px] text-slate-400 font-semibold leading-tight">Cara Posterior no cargada</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* DNI Apoderado */}
+                      <div className="bg-white p-3 rounded-xl border border-slate-200/80 space-y-2.5">
+                        <span className="font-extrabold text-[11px] text-slate-700 block border-b pb-1">DNI del Apoderado</span>
+                        {(() => {
+                          const rawVal = selectedApplicant.documents?.['dniApoderado'];
+                          const parsed = parseDniValue(rawVal);
+                          const apoName = selectedApplicant.formState?.padresTutores?.apoderado?.nombres || 'Apoderado';
+                          const apoLastName = `${selectedApplicant.formState?.padresTutores?.apoderado?.apellidoPaterno || ''} ${selectedApplicant.formState?.padresTutores?.apoderado?.apellidoMaterno || ''}`.trim() || 'Apellidos';
+                          const apoDocNum = selectedApplicant.formState?.padresTutores?.apoderado?.numeroDocumento || '00000000';
+                          const birthDate = selectedApplicant.formState?.padresTutores?.apoderado?.fechaNacimiento || 'DD/MM/AAAA';
+
+                          return (
+                            <div className="grid grid-cols-2 gap-3">
+                              {/* Frontal */}
+                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                                {parsed.frontal ? (
+                                  <div className="flex-1 flex flex-col justify-between">
+                                    <div className="flex justify-between items-start">
+                                      <div className="w-6 h-7 bg-amber-200 border border-amber-300 rounded flex items-center justify-center text-[8px] font-bold text-amber-700 shrink-0">Foto</div>
+                                      <div className="text-right">
+                                        <span className="text-[8px] font-extrabold text-blue-600 block leading-tight font-mono">REPÚBLICA DEL PERÚ</span>
+                                        <span className="text-[7px] text-slate-400 block leading-none font-mono">DNI APODERADO</span>
+                                      </div>
+                                    </div>
+                                    <div className="text-[8px] space-y-0.5 mt-2 font-mono">
+                                      <p className="truncate"><span className="text-slate-400">Apellidos:</span> <strong className="text-slate-700">{apoLastName}</strong></p>
+                                      <p className="truncate"><span className="text-slate-400">Nombres:</span> <strong className="text-slate-700">{apoName}</strong></p>
+                                      <p className="truncate"><span className="text-slate-400">Nº Doc:</span> <strong className="text-blue-700 font-extrabold">{apoDocNum}</strong></p>
+                                    </div>
+                                    <span className="text-[8px] text-green-700 font-bold bg-green-100 px-1.5 py-0.5 rounded mt-2 text-center block truncate">
+                                      ✓ Cara Frontal
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex-1 flex flex-col items-center justify-center text-center p-2">
+                                    <AlertCircle className="w-6 h-6 text-slate-300 mb-1" />
+                                    <span className="text-[9px] text-slate-400 font-semibold leading-tight">Cara Frontal no cargada</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Posterior */}
+                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                                {parsed.posterior ? (
+                                  <div className="flex-1 flex flex-col justify-between">
+                                    <div className="w-full h-2 bg-slate-400 rounded-sm mb-1"></div>
+                                    <div className="text-[8px] space-y-0.5 font-mono">
+                                      <p className="truncate"><span className="text-slate-400">F. Nac:</span> <strong className="text-slate-700">{birthDate}</strong></p>
+                                    </div>
+                                    <div className="border border-dashed border-slate-300 p-1 rounded bg-white text-center mt-2">
+                                      <span className="text-[6px] text-slate-400 block tracking-widest font-mono">|||||| |||| || |||||</span>
+                                    </div>
+                                    <span className="text-[8px] text-indigo-700 font-bold bg-indigo-100 px-1.5 py-0.5 rounded mt-2 text-center block truncate">
+                                      ✓ Cara Posterior
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex-1 flex flex-col items-center justify-center text-center p-2">
+                                    <AlertCircle className="w-6 h-6 text-slate-300 mb-1" />
+                                    <span className="text-[9px] text-slate-400 font-semibold leading-tight">Cara Posterior no cargada</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
