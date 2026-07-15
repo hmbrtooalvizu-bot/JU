@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  
+  --color-brand-navy: #15305e;
+  --color-brand-blue: #048cea;
+  --color-brand-lime: #c9ff24;
+  --color-brand-green: #1cdd00;
+  
+  --color-brand-red: #ff2445;
+  --color-brand-magenta: #e71d73;
+  --color-brand-orange: #ff6922;
+  --color-brand-royal: #004ce5;
+}
+
+/* Hide printable constancia on standard screen displays */
+.printable-constancia {
+  display: none !important;
+}
+
+/* Print layouts */
+@media print {
+  /* Reset margins for print */
+  @page {
+    size: A4;
+    margin: 15mm;
+  }
+  
+  body, html {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+  }
+
+  /* Hide screen elements */
+  header, nav, main, .no-print, button, footer {
+    display: none !important;
+  }
+
+  /* Display printable constancia */
+  .printable-constancia {
+    display: block !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
