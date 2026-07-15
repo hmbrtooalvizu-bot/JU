@@ -28,7 +28,10 @@ import {
   Award,
   Pencil,
   School,
-  GripVertical
+  GripVertical,
+  Menu,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { AdmissionRecord, AuditLogEntry } from '../utils/seedData';
@@ -49,6 +52,7 @@ interface AdminDashboardViewProps {
   triggerToast: (msg: string) => void;
   onDeleteRecord?: (id: string) => void;
   onClearRecords?: () => void;
+  onRestoreDemoRecords?: () => void;
   
   // Dynamic Districts, Headquarters, Grades & Levels props
   dynamicDistritos: string[];
@@ -61,6 +65,12 @@ interface AdminDashboardViewProps {
   setSedeLevels: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
   sedeAddresses: Record<string, string>;
   setSedeAddresses: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+
+  // Admission Fee config
+  admissionFee: number;
+  setAdmissionFee: (fee: number) => void;
+  admissionFeeActive: boolean;
+  setAdmissionFeeActive: (active: boolean) => void;
 }
 
 export default function AdminDashboardView({ 
@@ -71,6 +81,7 @@ export default function AdminDashboardView({
   triggerToast,
   onDeleteRecord,
   onClearRecords,
+  onRestoreDemoRecords,
   dynamicDistritos,
   setDynamicDistritos,
   dynamicSedesMap,
@@ -80,7 +91,11 @@ export default function AdminDashboardView({
   sedeLevels,
   setSedeLevels,
   sedeAddresses,
-  setSedeAddresses
+  setSedeAddresses,
+  admissionFee,
+  setAdmissionFee,
+  admissionFeeActive,
+  setAdmissionFeeActive
 }: AdminDashboardViewProps) {
   // Helper to check if a permission is granted
   const hasPermission = React.useCallback((permission: string): boolean => {
@@ -105,8 +120,57 @@ export default function AdminDashboardView({
     });
   };
 
+  const handleRestoreDemoRecords = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: "Restaurar Registros de Demostración",
+      message: "🔄 Esta acción recargará el conjunto de datos de demostración de alumnos y familias en la base de datos local para fines de prueba.\n\n¿Desea continuar?",
+      onConfirm: () => {
+        if (onRestoreDemoRecords) {
+          onRestoreDemoRecords();
+          triggerToast("✨ Registros de demostración restaurados con éxito.");
+        }
+      }
+    });
+  };
+
   // Navigation tabs within Admin Dashboard
   const [activeTab, setActiveTab] = useState<'applicants' | 'appointments' | 'users' | 'branches_districts' | 'reports'>('applicants');
+
+  // Admission Fee local states
+  const [tempAdmissionFee, setTempAdmissionFee] = useState<string>(admissionFee.toString());
+  const [tempFeeActive, setTempFeeActive] = useState<boolean>(admissionFeeActive);
+
+  useEffect(() => {
+    setTempAdmissionFee(admissionFee.toString());
+  }, [admissionFee]);
+
+  useEffect(() => {
+    setTempFeeActive(admissionFeeActive);
+  }, [admissionFeeActive]);
+
+  const handleSaveAdmissionFeeConfig = () => {
+    const parsed = parseFloat(tempAdmissionFee);
+    if (isNaN(parsed) || parsed < 0) {
+      triggerToast("❌ Ingrese un monto válido mayor o igual a cero.");
+      return;
+    }
+    setAdmissionFee(parsed);
+    setAdmissionFeeActive(tempFeeActive);
+    triggerToast(`✨ Configuración del Derecho de Admisión guardada con éxito (S/. ${parsed.toFixed(2)} - ${tempFeeActive ? 'Activo' : 'Inactivo'}).`);
+  };
+
+  // Sidebar states (desktop collapsed, mobile toggle)
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    const saved = sessionStorage.getItem('jc_admin_sidebar_collapsed');
+    return saved === 'true';
+  });
+
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    sessionStorage.setItem('jc_admin_sidebar_collapsed', isCollapsed.toString());
+  }, [isCollapsed]);
 
   // Route/Tab protection: auto-routing if activeTab is not permitted
   useEffect(() => {
@@ -984,6 +1048,8 @@ export default function AdminDashboardView({
   // Human friendly label for statuses
   const getStatusLabel = (status: string) => {
     switch (status) {
+      case 'pending_approval': return { text: 'Pre-Inscripción Pendiente', bg: 'bg-amber-50 text-amber-800 border-amber-200 font-medium' };
+      case 'ready_for_completion': return { text: 'Pte. Completar Ficha', bg: 'bg-indigo-50 text-indigo-800 border-indigo-200 font-medium' };
       case 'documents_pending': return { text: 'Pte. Documentos', bg: 'bg-slate-100 text-slate-700 border-slate-300' };
       case 'documents_submitted': return { text: 'Doc. Recibidos', bg: 'bg-blue-100 text-blue-800 border-blue-300' };
       case 'documents_verified': return { text: 'Doc. Verificados', bg: 'bg-indigo-100 text-indigo-800 border-indigo-300' };
@@ -998,144 +1064,428 @@ export default function AdminDashboardView({
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto pb-12">
+    <div className="w-full max-w-7xl mx-auto pb-12 px-4 sm:px-6">
+      {/* Mobile/Tablet Header with Hamburger Menu Button */}
+      <div className="lg:hidden w-full flex items-center justify-between bg-white px-5 py-4 border border-slate-200 rounded-3xl mb-6 shadow-xs">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="p-2.5 rounded-xl hover:bg-slate-150 text-slate-700 transition cursor-pointer active:scale-95"
+            aria-label="Abrir menú"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          <div>
+            <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">
+              Juventud Científica
+            </h3>
+            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+              Admisión 2027 • Admin
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="bg-blue-50 text-brand-navy text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border border-blue-100">
+            MAESTRO
+          </span>
+        </div>
+      </div>
+
+      {/* Mobile/Tablet Drawer Menu */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black z-40 lg:hidden"
+            />
+
+            {/* Sidebar Slide-in */}
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+              className="fixed top-0 left-0 bottom-0 w-80 bg-white z-50 p-6 flex flex-col justify-between border-r border-slate-200 shadow-2xl overflow-y-auto lg:hidden"
+            >
+              <div className="space-y-6">
+                {/* Header inside drawer */}
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">
+                      I.E. Juventud Científica
+                    </h3>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">
+                      Admisiones Virtuales 2027
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Navigation Menu in drawer */}
+                <div className="space-y-1.5">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block px-2 mb-2">
+                    Menú de Control
+                  </span>
+
+                  {hasPermission('Ver Dashboard') && (
+                    <button
+                      onClick={() => {
+                        setActiveTab('applicants');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 py-3 px-3.5 rounded-xl font-bold text-sm transition text-left cursor-pointer ${
+                        activeTab === 'applicants'
+                          ? 'bg-brand-navy text-white shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Users className="w-5 h-5 shrink-0" />
+                      <span>Gestión Postulantes</span>
+                      <span className={`ml-auto text-[10px] px-2.5 py-0.5 rounded-full font-bold ${
+                        activeTab === 'applicants' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {countTotalApplicants}
+                      </span>
+                    </button>
+                  )}
+
+                  {hasPermission('Ver reportes') && (
+                    <button
+                      onClick={() => {
+                        setActiveTab('reports');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 py-3 px-3.5 rounded-xl font-bold text-sm transition text-left cursor-pointer ${
+                        activeTab === 'reports'
+                          ? 'bg-brand-navy text-white shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                      }`}
+                    >
+                      <FileText className="w-5 h-5 shrink-0" />
+                      <span>Reportes & Vacantes</span>
+                    </button>
+                  )}
+
+                  {(hasPermission('Administrar sedes') || hasPermission('Configuración del sistema')) && (
+                    <button
+                      onClick={() => {
+                        setActiveTab('branches_districts');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 py-3 px-3.5 rounded-xl font-bold text-sm transition text-left cursor-pointer ${
+                        activeTab === 'branches_districts'
+                          ? 'bg-brand-navy text-white shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                      }`}
+                    >
+                      <School className="w-5 h-5 shrink-0" />
+                      <span>Distritos, Sedes y Grados</span>
+                    </button>
+                  )}
+
+                  {hasPermission('Administrar usuarios') && (
+                    <button
+                      onClick={() => {
+                        setActiveTab('users');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 py-3 px-3.5 rounded-xl font-bold text-sm transition text-left cursor-pointer ${
+                        activeTab === 'users'
+                          ? 'bg-brand-navy text-white shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                      }`}
+                    >
+                      <UserCheck className="w-5 h-5 shrink-0" />
+                      <span>Gestión de Usuarios</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Capacity Progress widget in drawer */}
+                <div className="space-y-3 pt-4 border-t border-slate-100">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block px-2">
+                    Estado de Matrícula
+                  </span>
+                  <div className="space-y-2 px-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-500 font-semibold">Matriculados:</span>
+                      <strong className="text-green-700 font-extrabold">{countEnrolled}</strong>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-500 font-semibold">Vacantes Libres:</span>
+                      <strong className="text-brand-navy font-extrabold">{remainingVacancies}</strong>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-2 mt-1 overflow-hidden">
+                      <div 
+                        className="bg-green-600 h-full transition-all duration-500"
+                        style={{ width: `${(countEnrolled / TOTAL_VACANCIES_CAPACITY) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions & Exit in drawer */}
+              <div className="space-y-2 pt-4 border-t border-slate-100 mt-auto">
+                {hasPermission('Configuración del sistema') && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        handleClearAllRecords();
+                      }}
+                      className="w-full bg-red-50 hover:bg-red-100 text-red-700 font-bold py-3 px-4 rounded-xl transition text-xs flex items-center justify-center gap-2 border border-red-200 cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4 shrink-0" />
+                      <span>Limpiar Base de Datos (0 Alumnos)</span>
+                    </button>
+
+                    {onRestoreDemoRecords && (
+                      <button
+                        onClick={() => {
+                          setIsMobileMenuOpen(false);
+                          handleRestoreDemoRecords();
+                        }}
+                        className="w-full bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold py-3 px-4 rounded-xl transition text-xs flex items-center justify-center gap-2 border border-amber-200 cursor-pointer"
+                      >
+                        <RefreshCw className="w-4 h-4 shrink-0" />
+                        <span>Restaurar Alumnos Demo</span>
+                      </button>
+                    )}
+                  </>
+                )}
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onLogout();
+                  }}
+                  className="w-full bg-slate-950 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl transition text-xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4 shrink-0" />
+                  <span>Cerrar Sesión</span>
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* LEFT COLUMN: Sidebar Menu */}
-        <aside className="lg:col-span-3 bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-6 lg:sticky lg:top-6">
+        <aside className={`hidden lg:block bg-white rounded-3xl border border-slate-200 shadow-sm space-y-6 lg:sticky lg:top-6 transition-all duration-300 ${
+          isCollapsed ? 'lg:col-span-1 p-3.5' : 'lg:col-span-3 p-5'
+        }`}>
           {/* Header/Brand info */}
-          <div className="space-y-3 pb-4 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <span className="bg-blue-50 text-brand-navy text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border border-blue-100 flex items-center gap-1">
-                <ShieldAlert className="w-3.5 h-3.5 text-brand-blue" />
-                Admin Maestro
-              </span>
+          <div className={`pb-4 border-b border-slate-100 flex flex-col gap-3 relative ${isCollapsed ? 'items-center' : ''}`}>
+            <div className="flex items-center justify-between gap-2 w-full">
+              {!isCollapsed ? (
+                <span className="bg-blue-50 text-brand-navy text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border border-blue-100 flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5 text-brand-blue" />
+                  Admin Maestro
+                </span>
+              ) : (
+                <ShieldAlert className="w-5 h-5 text-brand-blue mx-auto" />
+              )}
+              
+              <button
+                onClick={() => setIsCollapsed(!isCollapsed)}
+                className="hidden lg:flex p-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-800 border border-slate-200/80 shadow-2xs transition cursor-pointer"
+                title={isCollapsed ? "Expandir menú" : "Colapsar menú"}
+              >
+                {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+              </button>
             </div>
-            <div>
-              <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">
-                I.E. Juventud Científica
-              </h3>
-              <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">
-                Admisiones Virtuales 2027
-              </p>
-            </div>
+            
+            {!isCollapsed && (
+              <div>
+                <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">
+                  I.E. Juventud Científica
+                </h3>
+                <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">
+                  Admisiones Virtuales 2027
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Navigation Menu */}
           <div className="space-y-1">
-            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block px-2 mb-2">
-              Menú de Control
-            </span>
+            {!isCollapsed && (
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block px-2 mb-2">
+                Menú de Control
+              </span>
+            )}
             
             {hasPermission('Ver Dashboard') && (
               <button
                 onClick={() => setActiveTab('applicants')}
-                className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
+                title="Gestión Postulantes"
+                className={`w-full flex items-center transition text-left cursor-pointer relative ${
+                  isCollapsed 
+                    ? 'justify-center p-3 rounded-2xl' 
+                    : 'gap-2.5 py-2.5 px-3 rounded-xl'
+                } ${
                   activeTab === 'applicants'
                     ? 'bg-brand-navy text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
-                <Users className="w-4 h-4 shrink-0" />
-                <span>Gestión Postulantes</span>
-                <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                  activeTab === 'applicants' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
-                }`}>
-                  {countTotalApplicants}
-                </span>
+                <Users className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+                {!isCollapsed && (
+                  <>
+                    <span className="font-bold text-xs">Gestión Postulantes</span>
+                    <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                      activeTab === 'applicants' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {countTotalApplicants}
+                    </span>
+                  </>
+                )}
+                {isCollapsed && (
+                  <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[8px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                    {countTotalApplicants}
+                  </span>
+                )}
               </button>
             )}
 
             {hasPermission('Ver reportes') && (
               <button
                 onClick={() => setActiveTab('reports')}
-                className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
+                title="Reportes & Vacantes"
+                className={`w-full flex items-center transition text-left cursor-pointer ${
+                  isCollapsed 
+                    ? 'justify-center p-3 rounded-2xl' 
+                    : 'gap-2.5 py-2.5 px-3 rounded-xl'
+                } ${
                   activeTab === 'reports'
                     ? 'bg-brand-navy text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
-                <FileText className="w-4 h-4 shrink-0" />
-                <span>Reportes & Vacantes</span>
+                <FileText className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+                {!isCollapsed && <span className="font-bold text-xs">Reportes & Vacantes</span>}
               </button>
             )}
 
             {(hasPermission('Administrar sedes') || hasPermission('Configuración del sistema')) && (
               <button
                 onClick={() => setActiveTab('branches_districts')}
-                className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
+                title="Distritos, Sedes y Grados"
+                className={`w-full flex items-center transition text-left cursor-pointer ${
+                  isCollapsed 
+                    ? 'justify-center p-3 rounded-2xl' 
+                    : 'gap-2.5 py-2.5 px-3 rounded-xl'
+                } ${
                   activeTab === 'branches_districts'
                     ? 'bg-brand-navy text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
-                <School className="w-4 h-4 shrink-0" />
-                <span>Distritos, Sedes y Grados</span>
+                <School className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+                {!isCollapsed && <span className="font-bold text-xs">Distritos, Sedes y Grados</span>}
               </button>
             )}
 
             {hasPermission('Administrar usuarios') && (
               <button
                 onClick={() => setActiveTab('users')}
-                className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
+                title="Gestión de Usuarios"
+                className={`w-full flex items-center transition text-left cursor-pointer ${
+                  isCollapsed 
+                    ? 'justify-center p-3 rounded-2xl' 
+                    : 'gap-2.5 py-2.5 px-3 rounded-xl'
+                } ${
                   activeTab === 'users'
                     ? 'bg-brand-navy text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
-                <UserCheck className="w-4 h-4 shrink-0" />
-                <span>Gestión de Usuarios</span>
+                <UserCheck className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+                {!isCollapsed && <span className="font-bold text-xs">Gestión de Usuarios</span>}
               </button>
             )}
-
-
           </div>
 
           {/* Capacity Progress widget inside sidebar */}
-          <div className="space-y-3 pt-4 border-t border-slate-100">
-            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block px-2">
-              Estado de Matrícula
-            </span>
-            <div className="space-y-2 px-2">
-              <div className="flex justify-between text-[11px]">
-                <span className="text-slate-500 font-semibold">Matriculados:</span>
-                <strong className="text-green-700 font-extrabold">{countEnrolled}</strong>
-              </div>
-              <div className="flex justify-between text-[11px]">
-                <span className="text-slate-500 font-semibold">Vacantes Libres:</span>
-                <strong className="text-brand-navy font-extrabold">{remainingVacancies}</strong>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-1.5 mt-1 overflow-hidden">
-                <div 
-                  className="bg-green-600 h-full transition-all duration-500"
-                  style={{ width: `${(countEnrolled / TOTAL_VACANCIES_CAPACITY) * 100}%` }}
-                ></div>
+          {!isCollapsed && (
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block px-2">
+                Estado de Matrícula
+              </span>
+              <div className="space-y-2 px-2">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-slate-500 font-semibold">Matriculados:</span>
+                  <strong className="text-green-700 font-extrabold">{countEnrolled}</strong>
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-slate-500 font-semibold">Vacantes Libres:</span>
+                  <strong className="text-brand-navy font-extrabold">{remainingVacancies}</strong>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-1.5 mt-1 overflow-hidden">
+                  <div 
+                    className="bg-green-600 h-full transition-all duration-500"
+                    style={{ width: `${(countEnrolled / TOTAL_VACANCIES_CAPACITY) * 100}%` }}
+                  ></div>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Actions & Exit at bottom of sidebar */}
           <div className="space-y-2 pt-4 border-t border-slate-100">
             {hasPermission('Configuración del sistema') && (
-              <button
-                onClick={handleClearAllRecords}
-                className="w-full bg-red-50 hover:bg-red-100 text-red-700 font-bold py-2.5 px-3 rounded-xl transition text-xs flex items-center justify-center gap-2 border border-red-200 cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4 shrink-0" />
-                <span>Limpiar Base de Datos (0 Alumnos)</span>
-              </button>
+              <>
+                <button
+                  onClick={handleClearAllRecords}
+                  title="Limpiar Base de Datos (0 Alumnos)"
+                  className={`w-full bg-red-50 hover:bg-red-100 text-red-700 font-bold transition text-xs flex items-center justify-center border border-red-200 cursor-pointer ${
+                    isCollapsed ? 'p-3 rounded-2xl' : 'py-2.5 px-3 rounded-xl gap-2'
+                  }`}
+                >
+                  <Trash2 className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+                  {!isCollapsed && <span>Limpiar Base de Datos</span>}
+                </button>
+
+                {onRestoreDemoRecords && (
+                  <button
+                    onClick={handleRestoreDemoRecords}
+                    title="Restaurar Alumnos Demo"
+                    className={`w-full bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold transition text-xs flex items-center justify-center border border-amber-200 cursor-pointer ${
+                      isCollapsed ? 'p-3 rounded-2xl' : 'py-2.5 px-3 rounded-xl gap-2'
+                    }`}
+                  >
+                    <RefreshCw className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+                    {!isCollapsed && <span>Restaurar Alumnos Demo</span>}
+                  </button>
+                )}
+              </>
             )}
             <button
               onClick={onLogout}
-              className="w-full bg-slate-950 hover:bg-red-700 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs flex items-center justify-center gap-2 cursor-pointer"
+              title="Cerrar Sesión"
+              className={`w-full bg-slate-950 hover:bg-red-700 text-white font-bold transition text-xs flex items-center justify-center cursor-pointer ${
+                isCollapsed ? 'p-3 rounded-2xl' : 'py-2.5 px-3 rounded-xl gap-2'
+              }`}
             >
-              <LogOut className="w-4 h-4 shrink-0" />
-              <span>Cerrar Sesión</span>
+              <LogOut className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+              {!isCollapsed && <span>Cerrar Sesión</span>}
             </button>
           </div>
         </aside>
 
         {/* RIGHT COLUMN: Active tab layout, info and action buttons */}
-        <main className="lg:col-span-9 space-y-6">
+        <main className={`${isCollapsed ? 'lg:col-span-11' : 'lg:col-span-9'} col-span-12 space-y-6 transition-all duration-300`}>
           {/* Top Bar with actions */}
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
             <div className="space-y-1.5">
@@ -1386,6 +1736,8 @@ export default function AdminDashboardView({
                     className="border border-slate-300 rounded-xl px-3 py-2 text-xs bg-white text-slate-700 font-medium cursor-pointer"
                   >
                     <option value="">-- Estado Proceso (Todos) --</option>
+                    <option value="pending_approval">Pre-Inscripción Pendiente</option>
+                    <option value="ready_for_completion">Pte. Completar Ficha</option>
                     <option value="documents_pending">Pte. Documentos</option>
                     <option value="documents_submitted">Documentos Recibidos</option>
                     <option value="documents_verified">Documentos Verificados</option>
@@ -2402,6 +2754,74 @@ export default function AdminDashboardView({
                 </div>
 
               </div>
+
+              {/* CONFIGURACIÓN DEL DERECHO DE ADMISIÓN */}
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                <div className="flex items-center gap-2 border-b pb-3">
+                  <div className="p-1.5 bg-blue-100 text-slate-800 rounded-lg">
+                    <CreditCard className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black uppercase text-slate-800 tracking-wider">
+                      Configuración del Derecho de Admisión
+                    </h4>
+                    <p className="text-xs text-slate-400">Establezca el importe requerido para el Pago por Derecho de Admisión.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                  {/* Monto Input */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-700 block">
+                      Monto del Derecho de Admisión (S/.)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">S/.</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        disabled={!hasPermission('Configuración del sistema')}
+                        value={tempAdmissionFee}
+                        onChange={(e) => setTempAdmissionFee(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Estado Select */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-700 block">
+                      Estado del Derecho de Admisión
+                    </label>
+                    <select
+                      disabled={!hasPermission('Configuración del sistema')}
+                      value={tempFeeActive ? 'active' : 'inactive'}
+                      onChange={(e) => setTempFeeActive(e.target.value === 'active')}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                    >
+                      <option value="active">Activo</option>
+                      <option value="inactive">Inactivo</option>
+                    </select>
+                  </div>
+                </div>
+
+                {hasPermission('Configuración del sistema') ? (
+                  <div className="flex justify-end pt-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveAdmissionFeeConfig}
+                      className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-xl text-xs transition duration-150 shadow-sm cursor-pointer"
+                    >
+                      Guardar Configuración
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-500 italic mt-2">
+                    * Solo los usuarios con permisos de administración ("Configuración del sistema") pueden modificar estos valores. Los demás usuarios únicamente pueden visualizarlos.
+                  </p>
+                )}
+              </div>
             </motion.div>
           ))}
 
@@ -2499,6 +2919,8 @@ export default function AdminDashboardView({
                       </label>
                       <div className="grid grid-cols-2 gap-2">
                         {[
+                          { val: 'pending_approval', label: 'Pre-Inscripción Pendiente' },
+                          { val: 'ready_for_completion', label: 'Pte. Completar Ficha' },
                           { val: 'documents_pending', label: 'Pendiente Documentos' },
                           { val: 'documents_submitted', label: 'Doc. Recibidos' },
                           { val: 'documents_verified', label: 'Doc. Verificados' },

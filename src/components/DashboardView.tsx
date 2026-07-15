@@ -36,6 +36,7 @@ interface DashboardViewProps {
   setCurrentUser: (record: any) => void;
   triggerToast: (msg: string) => void;
   onRegisterSibling?: (siblingFormState: any) => void;
+  admissionFee: number;
 }
 
 export default function DashboardView({ 
@@ -44,7 +45,8 @@ export default function DashboardView({
   saveRecord, 
   setCurrentUser, 
   triggerToast,
-  onRegisterSibling
+  onRegisterSibling,
+  admissionFee
 }: DashboardViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<'ficha' | 'documentos' | 'cita' | 'matricula'>('ficha');
   const [selectedStepId, setSelectedStepId] = useState<number>(1);
@@ -112,7 +114,17 @@ export default function DashboardView({
   const requiresGoodConduct = (gradeName: string) => {
     if (!gradeName) return false;
     const g = gradeName.toUpperCase();
-    if (g.includes("5TO") || g.includes("6TO") || g.includes("SECUNDARIA") || g.includes("PREUNIVERSITARIO")) {
+    if (g.includes("SECUNDARIA") || g.includes("PREUNIVERSITARIO")) {
+      return true;
+    }
+    if (g.includes("PRIMARIA")) {
+      const is5th = g.includes("5TO") || g.includes("5°") || g.includes("5.º") || g.includes("5TO GRADO") || g.includes("QUINTO") || g.includes("5 ") || g.includes("5GRADO");
+      const is6th = g.includes("6TO") || g.includes("6°") || g.includes("6.º") || g.includes("6TO GRADO") || g.includes("SEXTO") || g.includes("6 ") || g.includes("6GRADO");
+      if (is5th || is6th) {
+        return true;
+      }
+    }
+    if (g.includes("5TO") || g.includes("6TO") || g.includes("5° GRADO") || g.includes("6° GRADO") || g.includes("5.º GRADO") || g.includes("6.º GRADO")) {
       return true;
     }
     return false;
@@ -158,13 +170,14 @@ export default function DashboardView({
 
   const steps = React.useMemo(() => {
     // 1. Ficha Técnica
-    const isFichaCompleted = currentUser?.status !== 'pending_approval' && currentUser?.status !== 'ready_for_completion';
-    const step1Status = isFichaCompleted ? 'completed' : (currentUser?.status === 'ready_for_completion' ? 'pending_action' : 'reviewing');
+    const isFichaCompleted = true;
+    const step1Status = 'completed';
 
     // 2. Documentos
-    const isStep2Unlocked = isFichaCompleted;
+    const isStep2Unlocked = true;
     const isStep2DocsUploaded = isDocsComplete;
-    const isStep2Approved = isFichaCompleted && 
+    const isStep2Approved = currentUser?.status !== 'pending_approval' && 
+                           currentUser?.status !== 'ready_for_completion' &&
                            currentUser?.status !== 'documents_pending' && 
                            currentUser?.status !== 'documents_submitted' &&
                            currentUser?.status !== 'observed';
@@ -323,38 +336,20 @@ export default function DashboardView({
       const recordIsPrivate = recordIsNew && (record.formState?.personales?.tipoColegioProcedencia === 'Colegio Particular');
       const recordIsConductRequired = recordIsNew && requiresGoodConduct(record.formState?.postulacion?.gradoIngreso || '');
 
-      const recordDocsList = [
-        { key: 'dniApoderado' },
-        { key: 'dniPostulante' },
-        { key: 'reciboServicio' }
-      ];
-      if (recordIsPrivate) {
-        recordDocsList.push({ key: 'constanciaNoAdeudo' });
-      }
-      if (recordIsConductRequired) {
-        recordDocsList.push({ key: 'cartaConducta' });
-      }
+      const reqDocs = ['dniApoderado', 'dniPostulante', 'reciboServicio'];
+      if (recordIsPrivate) reqDocs.push('constanciaNoAdeudo');
+      if (recordIsConductRequired) reqDocs.push('cartaConducta');
 
-      return recordDocsList.every(doc => {
-        const docIsShared = SHARED_DOC_KEYS.includes(doc.key);
-        if (docIsShared) {
-          if (doc.key === docKey) {
-            return !!fileName;
-          }
-          return familyRecords.some(r => r.id === record.id ? !!customDocs[doc.key] : !!r.documents?.[doc.key]);
-        } else {
-          return record.id === currentUser.id ? !!customDocs[doc.key] : !!record.documents?.[doc.key];
-        }
-      });
+      return reqDocs.every(k => !!customDocs?.[k]);
     };
 
     const isCurrentUserComplete = checkDocsCompleteForRecord(currentUser, currentUserDocs);
-    const newCurrentUserStatus = isCurrentUserComplete ? 'appointment_pending' : 'documents_pending';
+    const newCurrentUserStatus = isCurrentUserComplete ? 'documents_submitted' : 'documents_pending';
 
     const updatedCurrentUser = {
       ...currentUser,
       documents: currentUserDocs,
-      status: currentUser.status === 'documents_pending' || currentUser.status === 'appointment_pending'
+      status: currentUser.status === 'documents_pending' || currentUser.status === 'documents_submitted' || currentUser.status === 'observed'
         ? newCurrentUserStatus 
         : currentUser.status
     };
@@ -363,30 +358,93 @@ export default function DashboardView({
     setCurrentUser(updatedCurrentUser);
 
     // Propagate to other family records if shared
-    if (isShared) {
-      familyRecords.forEach(sibling => {
-        if (sibling.id !== currentUser.id) {
-          const siblingDocs = {
-            ...sibling.documents,
-            [docKey]: fileName
-          };
+    familyRecords.forEach(sibling => {
+      if (sibling.id !== currentUser.id) {
+        const siblingDocs = {
+          ...sibling.documents,
+          ...(isShared ? { [docKey]: fileName } : {})
+        };
 
-          const isSiblingComplete = checkDocsCompleteForRecord(sibling, siblingDocs);
-          const newSiblingStatus = isSiblingComplete ? 'appointment_pending' : 'documents_pending';
+        const isSiblingComplete = checkDocsCompleteForRecord(sibling, siblingDocs);
+        const newSiblingStatus = isSiblingComplete ? 'documents_submitted' : 'documents_pending';
 
-          const updatedSibling = {
-            ...sibling,
-            documents: siblingDocs,
-            status: sibling.status === 'documents_pending' || sibling.status === 'appointment_pending'
-              ? newSiblingStatus
-              : sibling.status
-          };
+        const updatedSibling = {
+          ...sibling,
+          documents: siblingDocs,
+          status: sibling.status === 'documents_pending' || sibling.status === 'documents_submitted' || sibling.status === 'observed'
+            ? newSiblingStatus
+            : sibling.status
+        };
 
-          saveRecord(updatedSibling);
+        saveRecord(updatedSibling);
+      }
+    });
+  };
+
+  // Synchronize shared documents across all family records if they are out of sync or newly registered
+  useEffect(() => {
+    if (familyRecords.length <= 1) return;
+
+    const SHARED_DOC_KEYS = ['dniApoderado', 'reciboServicio'];
+    let needsSync = false;
+    
+    // Find the best value for each shared document key
+    const bestSharedDocs: Record<string, string | null> = {};
+    SHARED_DOC_KEYS.forEach(key => {
+      const found = familyRecords.find(r => !!r.documents?.[key]);
+      bestSharedDocs[key] = found ? found.documents[key] : null;
+    });
+
+    // Check if any record lacks the best value or has a discrepancy
+    const updatedRecords = familyRecords.map(record => {
+      let docChanged = false;
+      const updatedDocs = { ...record.documents };
+
+      SHARED_DOC_KEYS.forEach(key => {
+        if (updatedDocs[key] !== bestSharedDocs[key]) {
+          updatedDocs[key] = bestSharedDocs[key];
+          docChanged = true;
+        }
+      });
+
+      if (docChanged) {
+        needsSync = true;
+        
+        // Recalculate status
+        const recordIsNew = record?.formState?.postulacion?.tipoAlumno === 'nuevo';
+        const recordIsPrivate = recordIsNew && (record.formState?.personales?.tipoColegioProcedencia === 'Colegio Particular');
+        const recordIsConductRequired = recordIsNew && requiresGoodConduct(record.formState?.postulacion?.gradoIngreso || '');
+
+        const reqDocs = ['dniApoderado', 'dniPostulante', 'reciboServicio'];
+        if (recordIsPrivate) reqDocs.push('constanciaNoAdeudo');
+        if (recordIsConductRequired) reqDocs.push('cartaConducta');
+
+        const isComplete = reqDocs.every(k => !!updatedDocs[k]);
+        const newStatus = isComplete ? 'documents_submitted' : 'documents_pending';
+
+        return {
+          ...record,
+          documents: updatedDocs,
+          status: record.status === 'documents_pending' || record.status === 'documents_submitted' || record.status === 'observed'
+            ? newStatus
+            : record.status
+        };
+      }
+      return record;
+    });
+
+    if (needsSync) {
+      updatedRecords.forEach(rec => {
+        const original = familyRecords.find(r => r.id === rec.id);
+        if (original && JSON.stringify(original.documents) !== JSON.stringify(rec.documents)) {
+          saveRecord(rec);
+          if (rec.id === currentUser.id) {
+            setCurrentUser(rec);
+          }
         }
       });
     }
-  };
+  }, [familyRecords, currentUser?.id]);
 
   // Camera capture states
   const [activeCameraDocKey, setActiveCameraDocKey] = useState<string | null>(null);
@@ -619,8 +677,8 @@ export default function DashboardView({
         dateLabel,
         timeSlot: slot
       },
-      status: currentUser.status === 'appointment_pending' || currentUser.status === 'documents_pending' 
-        ? 'matricula_pending' 
+      status: currentUser.status === 'documents_verified' || currentUser.status === 'documents_pending' || currentUser.status === 'appointment_pending'
+        ? 'interview_scheduled' 
         : currentUser.status
     };
 
@@ -633,7 +691,7 @@ export default function DashboardView({
     const updatedRecord = {
       ...currentUser,
       appointment: null,
-      status: currentUser.status === 'matricula_pending' ? 'appointment_pending' : currentUser.status
+      status: currentUser.status === 'interview_scheduled' ? 'documents_verified' : currentUser.status
     };
 
     saveRecord(updatedRecord);
@@ -1642,9 +1700,9 @@ export default function DashboardView({
                   <span className="text-[10px] bg-green-100 text-green-800 font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
                     ¡Pre-Inscripción Aprobada por Administrador! 🎉
                   </span>
-                  <h3 className="text-xl font-black text-slate-900 uppercase">Ficha Técnica Pendiente de Datos Detallados</h3>
-                  <p className="text-sm text-slate-600 leading-normal max-w-lg mx-auto">
-                    Su solicitud rápida ha sido revisada y aceptada de forma preliminar por el Colegio <strong>Juventud Científica</strong>. Para continuar con los siguientes pasos del proceso de admisión, debe rellenar la información detallada que omitió al inicio.
+                  <h3 className="text-xl font-black text-slate-900 uppercase">Ficha de Admisión Completa (Recomendado)</h3>
+                  <p className="text-sm text-slate-700 leading-relaxed max-w-lg mx-auto">
+                    Permite registrar todos los datos de contacto, padres, nacimiento e ingresos, habilitando la carga inmediata de documentos obligatorios.
                   </p>
                   <div className="pt-4">
                     <button 
@@ -1654,7 +1712,7 @@ export default function DashboardView({
                       }}
                       className="bg-blue-600 hover:bg-blue-700 text-white font-black py-3 px-8 rounded-xl shadow-md hover:shadow-lg transition duration-150 text-xs hover:scale-102 cursor-pointer"
                     >
-                      ✏️ Rellenar Datos Detallados de Admisión Ahora
+                      ✏️ Completar Ficha de Admisión Completa Ahora
                     </button>
                   </div>
                 </div>
@@ -1991,7 +2049,7 @@ export default function DashboardView({
             <div>
               <h3 className="text-base font-extrabold text-slate-900 uppercase">Pago por Derecho de Admisión 2027</h3>
               <p className="text-xs text-slate-500">
-                Para validar el examen de ingreso, deberá efectuar el pago de S/. 150.00 por derecho de admisión y adjuntar el comprobante correspondiente.
+                Para validar el examen de ingreso, deberá efectuar el pago de S/. {admissionFee.toFixed(2)} por derecho de admisión y adjuntar el comprobante correspondiente.
               </p>
             </div>
 
@@ -2005,7 +2063,7 @@ export default function DashboardView({
                     <span className="text-xs bg-emerald-100 text-emerald-800 font-extrabold px-2.5 py-0.5 rounded-full inline-block uppercase tracking-wider">
                       Pago Aprobado y Validado
                     </span>
-                    <h4 className="text-base font-black text-slate-950 uppercase">S/. 150.00 Recibidos Exitosamente</h4>
+                    <h4 className="text-base font-black text-slate-950 uppercase">S/. {admissionFee.toFixed(2)} Recibidos Exitosamente</h4>
                     <p className="text-xs text-slate-700 leading-normal">
                       Su comprobante ({currentUser.paymentComprobante}) fue verificado y validado por Tesorería el {currentUser.paymentDate || new Date().toLocaleDateString('es-PE')}. La etapa de Cita Psicopedagógica se encuentra desbloqueada.
                     </p>
@@ -2019,7 +2077,7 @@ export default function DashboardView({
                     <Clock className="w-5 h-5" />
                   </div>
                   <div className="space-y-1">
-                    <span className="text-xs bg-amber-100 text-amber-800 font-extrabold px-2.5 py-0.5 rounded-full inline-block uppercase tracking-wider">
+                    <span className="text-xs bg-amber-100 text-emerald-800 font-extrabold px-2.5 py-0.5 rounded-full inline-block uppercase tracking-wider">
                       En Proceso de Revisión
                     </span>
                     <h4 className="text-sm font-black text-slate-900 uppercase">Comprobante en Verificación por Tesorería</h4>
@@ -2064,7 +2122,7 @@ export default function DashboardView({
                   </div>
                   <div className="text-right">
                     <p className="text-slate-400 text-[10px] font-bold uppercase">Monto Total</p>
-                    <p className="text-xl font-black text-slate-900">S/. 150.00</p>
+                    <p className="text-xl font-black text-slate-900">S/. {admissionFee.toFixed(2)}</p>
                   </div>
                 </div>
 

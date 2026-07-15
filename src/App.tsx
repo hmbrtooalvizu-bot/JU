@@ -156,6 +156,16 @@ export default function App() {
     return { ...DEFAULT_SEDE_ADDRESSES };
   });
 
+  const [admissionFee, setAdmissionFee] = useState<number>(() => {
+    const stored = localStorage.getItem('jc_admission_fee');
+    return stored ? parseFloat(stored) : 150.00;
+  });
+
+  const [admissionFeeActive, setAdmissionFeeActive] = useState<boolean>(() => {
+    const stored = localStorage.getItem('jc_admission_fee_active');
+    return stored ? stored === 'true' : true;
+  });
+
   // Synchronize dynamic lists to localStorage on changes
   useEffect(() => {
     localStorage.setItem('jc_dynamic_distritos', JSON.stringify(districtsList));
@@ -180,6 +190,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('jc_sede_addresses', JSON.stringify(sedeAddresses));
   }, [sedeAddresses]);
+
+  useEffect(() => {
+    localStorage.setItem('jc_admission_fee', admissionFee.toString());
+  }, [admissionFee]);
+
+  useEffect(() => {
+    localStorage.setItem('jc_admission_fee_active', admissionFeeActive.toString());
+  }, [admissionFeeActive]);
 
   // Read allowed levels for the selected Sede dynamically and reactively
   const allowedLevelsForSelectedSede = React.useMemo(() => {
@@ -294,19 +312,20 @@ export default function App() {
   // Load and seed family records on mount
   useEffect(() => {
     const stored = localStorage.getItem('jc_admissions_records');
+    const wasSeeded = localStorage.getItem('jc_admissions_records_seeded');
     let loadedRecords = [];
+    
     if (stored) {
       try {
         loadedRecords = JSON.parse(stored);
       } catch (e) {
         loadedRecords = [];
       }
-    }
-    
-    // Seed with a rich set of demo records if empty so users can login immediately
-    if (loadedRecords.length === 0) {
+    } else if (wasSeeded !== 'true') {
+      // First-time load: seed with a rich set of demo records if no key exists
       loadedRecords = getSeededRecords();
       localStorage.setItem('jc_admissions_records', JSON.stringify(loadedRecords));
+      localStorage.setItem('jc_admissions_records_seeded', 'true');
     }
     setRecords(loadedRecords);
   }, []);
@@ -582,7 +601,7 @@ export default function App() {
         constanciaNoAdeudo: null
       },
       appointment: null,
-      status: isFormSimple ? 'pending_approval' : 'documents_pending',
+      status: 'documents_pending',
       assignedClassroom: null,
       createdAt: new Date().toISOString()
     };
@@ -638,6 +657,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased selection:bg-brand-navy selection:text-white flex flex-col">
+      {/* Floating Toast Notification */}
+      <AnimatePresence>
+        {showToast && (
+          <motion.div 
+            initial={{ opacity: 0, y: -50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.9 }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center space-x-3 max-w-md border border-slate-700/50"
+          >
+            <Info className="w-5 h-5 text-amber-400 flex-shrink-0" />
+            <p className="text-sm font-medium">{showToast}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header Section */}
       <header className="h-16 bg-brand-navy text-white flex items-center justify-between px-6 sm:px-8 shrink-0 shadow-md relative z-20 no-print">
         <div className="flex items-center gap-3">
@@ -806,20 +840,6 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 p-4 sm:p-6 md:p-8 flex flex-col items-center bg-slate-50 relative z-0">
-        {/* Floating Toast Notification */}
-        <AnimatePresence>
-          {showToast && (
-            <motion.div 
-              initial={{ opacity: 0, y: -50, scale: 0.9 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -20, scale: 0.9 }}
-              className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center space-x-3 max-w-md border border-slate-700/50"
-            >
-              <Info className="w-5 h-5 text-amber-400 flex-shrink-0" />
-              <p className="text-sm font-medium">{showToast}</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {activeView === 'dashboard' && currentUser ? (
           currentUser.role === 'admin' ? (
@@ -858,6 +878,10 @@ export default function App() {
               setSedeLevels={setSedeLevels}
               sedeAddresses={sedeAddresses}
               setSedeAddresses={setSedeAddresses}
+              admissionFee={admissionFee}
+              setAdmissionFee={setAdmissionFee}
+              admissionFeeActive={admissionFeeActive}
+              setAdmissionFeeActive={setAdmissionFeeActive}
               onDeleteRecord={(id) => {
                 const updated = records.filter(r => r.id !== id);
                 setRecords(updated);
@@ -866,6 +890,12 @@ export default function App() {
               onClearRecords={() => {
                 setRecords([]);
                 localStorage.setItem('jc_admissions_records', JSON.stringify([]));
+              }}
+              onRestoreDemoRecords={() => {
+                const demoRecords = getSeededRecords();
+                setRecords(demoRecords);
+                localStorage.setItem('jc_admissions_records', JSON.stringify(demoRecords));
+                localStorage.setItem('jc_admissions_records_seeded', 'true');
               }}
             />
           ) : (
@@ -876,6 +906,7 @@ export default function App() {
               setCurrentUser={setCurrentUser} 
               triggerToast={triggerToast} 
               onRegisterSibling={handleRegisterSibling}
+              admissionFee={admissionFee}
             />
           )
         ) : activeView === 'login' ? (
