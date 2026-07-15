@@ -39,6 +39,11 @@ export default function LoginView({ records, onLoginSuccess, onSwitchToRegister,
       u => u.username.toUpperCase() === cleanUser && u.password === cleanPass
     );
 
+    if (matchedAdmin && !matchedAdmin.active) {
+      triggerToast("❌ Esta cuenta de usuario se encuentra desactivada.");
+      return;
+    }
+
     // Bypass for Administrator (master or custom)
     if ((cleanUser === 'ADMIN' && cleanPass === 'admin') || matchedAdmin) {
       const activeAdminName = matchedAdmin ? matchedAdmin.fullName : 'Administrador Maestro';
@@ -52,6 +57,13 @@ export default function LoginView({ records, onLoginSuccess, onSwitchToRegister,
           username: activeAdminUser,
           password: cleanPass,
           role: 'admin',
+          roleAdmin: matchedAdmin ? matchedAdmin.roleAdmin : 'Super Administrador',
+          permissions: matchedAdmin ? matchedAdmin.permissions : [
+            'Ver Dashboard', 'Crear ficha', 'Editar ficha', 'Aprobar ficha', 'Rechazar ficha',
+            'Ver documentos', 'Descargar documentos', 'Ver reportes', 'Exportar reportes',
+            'Administrar usuarios', 'Administrar sedes', 'Configuración del sistema', 'Ver estadísticas'
+          ],
+          sedes: matchedAdmin ? matchedAdmin.sedes : ['all'],
           status: 'enrolled',
           paymentState: 'paid',
           paymentAmount: 0,

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { AdmissionRecord, AuditLogEntry } from '../utils/seedData';
+import UsersManagementView from './UsersManagementView';
 import { 
   DISTRITOS, 
   SEDES_POR_DISTRITO, 
@@ -41,11 +42,13 @@ import {
 } from '../data';
 
 interface AdminDashboardViewProps {
+  currentUser: any;
   records: AdmissionRecord[];
   onSaveRecord: (record: AdmissionRecord) => void;
   onLogout: () => void;
   triggerToast: (msg: string) => void;
   onDeleteRecord?: (id: string) => void;
+  onClearRecords?: () => void;
   
   // Dynamic Districts, Headquarters, Grades & Levels props
   dynamicDistritos: string[];
@@ -61,11 +64,13 @@ interface AdminDashboardViewProps {
 }
 
 export default function AdminDashboardView({ 
+  currentUser,
   records, 
   onSaveRecord, 
   onLogout, 
   triggerToast,
   onDeleteRecord,
+  onClearRecords,
   dynamicDistritos,
   setDynamicDistritos,
   dynamicSedesMap,
@@ -77,8 +82,57 @@ export default function AdminDashboardView({
   sedeAddresses,
   setSedeAddresses
 }: AdminDashboardViewProps) {
+  // Helper to check if a permission is granted
+  const hasPermission = React.useCallback((permission: string): boolean => {
+    if (!currentUser) return false;
+    if (currentUser.roleAdmin === 'Super Administrador' || currentUser.id === 'ADMIN-MASTER' || currentUser.username === 'admin') {
+      return true;
+    }
+    return currentUser.permissions?.includes(permission) || false;
+  }, [currentUser]);
+
+  const handleClearAllRecords = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: "Limpiar Base de Datos de Alumnos",
+      message: "⚠️ ¡ATENCIÓN! Esta acción eliminará permanentemente TODOS los registros de alumnos/postulantes y reiniciará la base de datos a cero (0 alumnos).\n\n¿Está completamente seguro de continuar con esta operación irreversible?",
+      onConfirm: () => {
+        if (onClearRecords) {
+          onClearRecords();
+          triggerToast("🗑️ Base de datos de alumnos limpiada con éxito (0 alumnos).");
+        }
+      }
+    });
+  };
+
   // Navigation tabs within Admin Dashboard
   const [activeTab, setActiveTab] = useState<'applicants' | 'appointments' | 'users' | 'branches_districts' | 'reports'>('applicants');
+
+  // Route/Tab protection: auto-routing if activeTab is not permitted
+  useEffect(() => {
+    if (!hasPermission('Ver Dashboard')) {
+      if (hasPermission('Ver reportes')) {
+        setActiveTab('reports');
+      } else if (hasPermission('Administrar sedes') || hasPermission('Configuración del sistema')) {
+        setActiveTab('branches_districts');
+      } else if (hasPermission('Administrar usuarios')) {
+        setActiveTab('users');
+      }
+    }
+  }, [currentUser, hasPermission]);
+
+  const allSedes = React.useMemo(() => {
+    return Object.values(dynamicSedesMap).flat();
+  }, [dynamicSedesMap]);
+
+  // Filter records by the logged-in user's assigned sedes
+  const allowedSedes = currentUser?.sedes || ['all'];
+  const hasAllSedes = allowedSedes.includes('all');
+  
+  const filteredRecordsBySede = React.useMemo(() => {
+    if (hasAllSedes) return records;
+    return records.filter(r => allowedSedes.includes(r.formState?.postulacion?.sedeLocal));
+  }, [records, allowedSedes, hasAllSedes]);
 
   // Custom confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -457,6 +511,15 @@ export default function AdminDashboardView({
     return Object.values(SEDES_POR_DISTRITO)[0]?.[0] || 'Cdra 7';
   });
 
+  // Keep selectedManageSede within allowed sedes
+  useEffect(() => {
+    if (!hasAllSedes && allowedSedes.length > 0) {
+      if (!allowedSedes.includes(selectedManageSede)) {
+        setSelectedManageSede(allowedSedes[0]);
+      }
+    }
+  }, [allowedSedes, hasAllSedes, selectedManageSede]);
+
   const handleUpdateSedeCapacity = (sede: string, delta: number) => {
     setSedeCapacities(prev => {
       const current = prev[sede] ?? 50;
@@ -513,11 +576,18 @@ export default function AdminDashboardView({
     window.dispatchEvent(new Event('storage'));
   }, [sedeCapacities]);
 
-  const TOTAL_VACANCIES_CAPACITY: number = (Object.values(sedeCapacities) as number[]).reduce((sum: number, cap: number): number => sum + cap, 0);
+  const TOTAL_VACANCIES_CAPACITY: number = React.useMemo(() => {
+    return Object.entries(sedeCapacities).reduce((sum: number, [sedeName, cap]: [string, any]): number => {
+      if (hasAllSedes || allowedSedes.includes(sedeName)) {
+        return sum + (cap as number);
+      }
+      return sum;
+    }, 0);
+  }, [sedeCapacities, hasAllSedes, allowedSedes]);
 
   // Filter Active (non-deleted) records vs Soft deleted ones
-  const activeRecords = records.filter(r => !r.isDeleted);
-  const deletedRecords = records.filter(r => r.isDeleted);
+  const activeRecords = filteredRecordsBySede.filter(r => !r.isDeleted);
+  const deletedRecords = filteredRecordsBySede.filter(r => r.isDeleted);
 
   // Compute metrics
   const countTotalApplicants = activeRecords.length;
@@ -750,7 +820,7 @@ export default function AdminDashboardView({
     doc.text('DISTRIBUCIÓN POR SEDE ESCOLAR', 15, y);
     y += 5;
 
-    const sedes = ['Castillo Las Lilas', 'Sede Los Portales', 'Sede Central'];
+    const sedes = ['Castillo Las Lilas', 'Sede Los Portales', 'Sede Central'].filter(s => hasAllSedes || allowedSedes.includes(s));
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.text('Sede / Local', 18, y + 4);
@@ -789,6 +859,10 @@ export default function AdminDashboardView({
 
   // Perform soft delete
   const handleDeleteApplicant = (app: AdmissionRecord) => {
+    if (!hasPermission('Editar ficha')) {
+      triggerToast("❌ No cuenta con el permiso 'Editar ficha' para eliminar expedientes.");
+      return;
+    }
     const name = `${app.formState.personales.nombres} ${app.formState.personales.apellidoPaterno}`;
     setConfirmModal({
       isOpen: true,
@@ -809,6 +883,10 @@ export default function AdminDashboardView({
 
   // Perform restore of soft deleted record
   const handleRestoreApplicant = (app: AdmissionRecord) => {
+    if (!hasPermission('Editar ficha')) {
+      triggerToast("❌ No cuenta con el permiso 'Editar ficha' para restaurar expedientes.");
+      return;
+    }
     const name = `${app.formState.personales.nombres} ${app.formState.personales.apellidoPaterno}`;
     const updated: AdmissionRecord = {
       ...app,
@@ -821,6 +899,10 @@ export default function AdminDashboardView({
 
   // Perform permanent delete of a record from the recycle bin
   const handlePermanentDeleteApplicant = (id: string, name: string) => {
+    if (!hasPermission('Editar ficha')) {
+      triggerToast("❌ No cuenta con el permiso 'Editar ficha' para realizar la eliminación permanente.");
+      return;
+    }
     setConfirmModal({
       isOpen: true,
       title: "Eliminación Permanente",
@@ -843,6 +925,24 @@ export default function AdminDashboardView({
 
     const oldStatus = selectedApplicant.status;
     const newStatus = tempStatus as any;
+
+    // Enforce programmatic permission checks
+    if (newStatus === 'admitted' || newStatus === 'enrolled') {
+      if (!hasPermission('Aprobar ficha')) {
+        triggerToast("❌ No cuenta con el permiso 'Aprobar ficha' para admitir o matricular.");
+        return;
+      }
+    } else if (newStatus === 'observed' || newStatus === 'documents_pending') {
+      if (!hasPermission('Rechazar ficha')) {
+        triggerToast("❌ No cuenta con el permiso 'Rechazar ficha' para observar o revertir a pendiente.");
+        return;
+      }
+    } else {
+      if (!hasPermission('Editar ficha')) {
+        triggerToast("❌ No cuenta con el permiso 'Editar ficha' para modificar este expediente.");
+        return;
+      }
+    }
 
     let assignedClassroomValue = selectedApplicant.assignedClassroom;
     let paymentStateValue = selectedApplicant.paymentState;
@@ -926,46 +1026,66 @@ export default function AdminDashboardView({
               Menú de Control
             </span>
             
-            <button
-              onClick={() => setActiveTab('applicants')}
-              className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
-                activeTab === 'applicants'
-                  ? 'bg-brand-navy text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <Users className="w-4 h-4 shrink-0" />
-              <span>Gestión Postulantes</span>
-              <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                activeTab === 'applicants' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
-              }`}>
-                {countTotalApplicants}
-              </span>
-            </button>
+            {hasPermission('Ver Dashboard') && (
+              <button
+                onClick={() => setActiveTab('applicants')}
+                className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
+                  activeTab === 'applicants'
+                    ? 'bg-brand-navy text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Users className="w-4 h-4 shrink-0" />
+                <span>Gestión Postulantes</span>
+                <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                  activeTab === 'applicants' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {countTotalApplicants}
+                </span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('reports')}
-              className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
-                activeTab === 'reports'
-                  ? 'bg-brand-navy text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <FileText className="w-4 h-4 shrink-0" />
-              <span>Reportes & Vacantes</span>
-            </button>
+            {hasPermission('Ver reportes') && (
+              <button
+                onClick={() => setActiveTab('reports')}
+                className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
+                  activeTab === 'reports'
+                    ? 'bg-brand-navy text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <FileText className="w-4 h-4 shrink-0" />
+                <span>Reportes & Vacantes</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('branches_districts')}
-              className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
-                activeTab === 'branches_districts'
-                  ? 'bg-brand-navy text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <School className="w-4 h-4 shrink-0" />
-              <span>Distritos, Sedes y Grados</span>
-            </button>
+            {(hasPermission('Administrar sedes') || hasPermission('Configuración del sistema')) && (
+              <button
+                onClick={() => setActiveTab('branches_districts')}
+                className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
+                  activeTab === 'branches_districts'
+                    ? 'bg-brand-navy text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <School className="w-4 h-4 shrink-0" />
+                <span>Distritos, Sedes y Grados</span>
+              </button>
+            )}
+
+            {hasPermission('Administrar usuarios') && (
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`w-full flex items-center gap-2.5 py-2.5 px-3 rounded-xl font-bold text-xs transition text-left cursor-pointer ${
+                  activeTab === 'users'
+                    ? 'bg-brand-navy text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <UserCheck className="w-4 h-4 shrink-0" />
+                <span>Gestión de Usuarios</span>
+              </button>
+            )}
 
 
           </div>
@@ -995,6 +1115,15 @@ export default function AdminDashboardView({
 
           {/* Actions & Exit at bottom of sidebar */}
           <div className="space-y-2 pt-4 border-t border-slate-100">
+            {hasPermission('Configuración del sistema') && (
+              <button
+                onClick={handleClearAllRecords}
+                className="w-full bg-red-50 hover:bg-red-100 text-red-700 font-bold py-2.5 px-3 rounded-xl transition text-xs flex items-center justify-center gap-2 border border-red-200 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4 shrink-0" />
+                <span>Limpiar Base de Datos (0 Alumnos)</span>
+              </button>
+            )}
             <button
               onClick={onLogout}
               className="w-full bg-slate-950 hover:bg-red-700 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs flex items-center justify-center gap-2 cursor-pointer"
@@ -1019,137 +1148,159 @@ export default function AdminDashboardView({
               <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight uppercase">
                 {activeTab === 'applicants' && "Gestión de Expedientes"}
                 {activeTab === 'reports' && "Reportes & Distribución Geográfica"}
+                {activeTab === 'branches_districts' && "Sedes, Distritos y Grados"}
+                {activeTab === 'users' && "Gestión de Usuarios y Permisos"}
               </h2>
               <p className="text-xs text-slate-500 max-w-2xl">
                 {activeTab === 'applicants' && "Supervise las fichas de postulación, verifique los documentos cargados, gestione citas psicopedagógicas y asigne vacantes oficiales."}
                 {activeTab === 'reports' && "Métricas de matrícula, distribución geográfica por distritos, y estado financiero de recaudación por derecho de admisión."}
+                {activeTab === 'branches_districts' && "Configure los distritos habilitados, cree nuevas sedes físicas escolares y administre los grados escolares correspondientes."}
+                {activeTab === 'users' && "Consola administrativa para crear personal, configurar roles (Super Admin, Administrador de Sede, Operador) y otorgar permisos granulares."}
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2 shrink-0 w-full md:w-auto">
-              <button
-                onClick={exportReportsPDF}
-                className="flex-1 md:flex-none bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold py-2 px-3.5 rounded-xl transition text-xs border border-indigo-200 flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Reporte PDF</span>
-              </button>
-              <button
-                onClick={exportToExcel}
-                className="flex-1 md:flex-none bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold py-2 px-3.5 rounded-xl transition text-xs border border-emerald-200 flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Exportar Excel</span>
-              </button>
-            </div>
+            {hasPermission('Exportar reportes') && (
+              <div className="flex flex-wrap gap-2 shrink-0 w-full md:w-auto">
+                <button
+                  onClick={exportReportsPDF}
+                  className="flex-1 md:flex-none bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold py-2 px-3.5 rounded-xl transition text-xs border border-indigo-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Reporte PDF</span>
+                </button>
+                <button
+                  onClick={exportToExcel}
+                  className="flex-1 md:flex-none bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold py-2 px-3.5 rounded-xl transition text-xs border border-emerald-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Exportar Excel</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Metrics Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Metric 1: Postulantes */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-              <div className="p-3 bg-blue-50 text-blue-700 rounded-xl">
-                <Users className="w-6 h-6" />
+          {hasPermission('Ver estadísticas') ? (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Metric 1: Postulantes */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
+                <div className="p-3 bg-blue-50 text-blue-700 rounded-xl">
+                  <Users className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Postulantes</span>
+                  <strong className="block text-xl font-black text-slate-900">{countTotalApplicants}</strong>
+                  <span className="text-[9px] text-slate-500 font-semibold block">Registrados Totales</span>
+                </div>
               </div>
-              <div>
-                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Postulantes</span>
-                <strong className="block text-xl font-black text-slate-900">{countTotalApplicants}</strong>
-                <span className="text-[9px] text-slate-500 font-semibold block">Registrados Totales</span>
-              </div>
-            </div>
 
-            {/* Metric 2: Matriculados */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-              <div className="p-3 bg-green-50 text-green-700 rounded-xl">
-                <UserCheck className="w-6 h-6" />
+              {/* Metric 2: Matriculados */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
+                <div className="p-3 bg-green-50 text-green-700 rounded-xl">
+                  <UserCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Matriculados</span>
+                  <strong className="block text-xl font-black text-green-700">{countEnrolled}</strong>
+                  <span className="text-[9px] text-slate-500 font-semibold block">Vacantes Asignadas</span>
+                </div>
               </div>
-              <div>
-                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Matriculados</span>
-                <strong className="block text-xl font-black text-green-700">{countEnrolled}</strong>
-                <span className="text-[9px] text-slate-500 font-semibold block">Vacantes Asignadas</span>
-              </div>
-            </div>
 
-            {/* Metric 3: Ingresos Totales */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-              <div className="p-3 bg-amber-50 text-amber-700 rounded-xl">
-                <TrendingUp className="w-6 h-6" />
+              {/* Metric 3: Ingresos Totales */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
+                <div className="p-3 bg-amber-50 text-amber-700 rounded-xl">
+                  <TrendingUp className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Ingresos</span>
+                  <strong className="block text-xl font-black text-amber-700">S/. {totalRevenue.toLocaleString('es-PE')}</strong>
+                  <span className="text-[9px] text-slate-500 font-semibold block">{countPaid} Pagos Registrados</span>
+                </div>
               </div>
-              <div>
-                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Ingresos</span>
-                <strong className="block text-xl font-black text-amber-700">S/. {totalRevenue.toLocaleString('es-PE')}</strong>
-                <span className="text-[9px] text-slate-500 font-semibold block">{countPaid} Pagos Registrados</span>
-              </div>
-            </div>
 
-            {/* Metric 4: Vacantes Libres */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-              <div className="p-3 bg-brand-blue/10 text-brand-blue rounded-xl">
-                <Award className="w-6 h-6" />
+              {/* Metric 4: Vacantes Libres */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
+                <div className="p-3 bg-brand-blue/10 text-brand-blue rounded-xl">
+                  <Award className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Vacantes</span>
+                  <strong className="block text-xl font-black text-blue-900">{remainingVacancies} / {TOTAL_VACANCIES_CAPACITY}</strong>
+                  <span className="text-[9px] text-slate-500 font-semibold block">Disponibilidad Actual</span>
+                </div>
               </div>
-              <div>
-                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Vacantes</span>
-                <strong className="block text-xl font-black text-blue-900">{remainingVacancies} / {TOTAL_VACANCIES_CAPACITY}</strong>
-                <span className="text-[9px] text-slate-500 font-semibold block">Disponibilidad Actual</span>
-              </div>
-            </div>
 
-            {/* Metric 5: Citas Programadas */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-              <div className="p-3 bg-indigo-50 text-indigo-700 rounded-xl">
-                <Calendar className="w-6 h-6" />
+              {/* Metric 5: Citas Programadas */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
+                <div className="p-3 bg-indigo-50 text-indigo-700 rounded-xl">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Citas Psicología</span>
+                  <strong className="block text-xl font-black text-slate-900">{countAppointments}</strong>
+                  <span className="text-[9px] text-slate-500 font-semibold block">Agendadas Virtuales</span>
+                </div>
               </div>
-              <div>
-                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Citas Psicología</span>
-                <strong className="block text-xl font-black text-slate-900">{countAppointments}</strong>
-                <span className="text-[9px] text-slate-500 font-semibold block">Agendadas Virtuales</span>
-              </div>
-            </div>
 
-            {/* Metric 6: Expedientes con Documentos */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-              <div className="p-3 bg-sky-50 text-sky-700 rounded-xl">
-                <FileCheck2 className="w-6 h-6" />
+              {/* Metric 6: Expedientes con Documentos */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
+                <div className="p-3 bg-sky-50 text-sky-700 rounded-xl">
+                  <FileCheck2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Documentación</span>
+                  <strong className="block text-xl font-black text-slate-900">{countDocsVerified}</strong>
+                  <span className="text-[9px] text-slate-500 font-semibold block">Expedientes Validados</span>
+                </div>
               </div>
-              <div>
-                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Documentación</span>
-                <strong className="block text-xl font-black text-slate-900">{countDocsVerified}</strong>
-                <span className="text-[9px] text-slate-500 font-semibold block">Expedientes Validados</span>
-              </div>
-            </div>
 
-            {/* Metric 7: Lista de Espera */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-              <div className="p-3 bg-orange-50 text-orange-700 rounded-xl">
-                <Clock className="w-6 h-6" />
+              {/* Metric 7: Lista de Espera */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
+                <div className="p-3 bg-orange-50 text-orange-700 rounded-xl">
+                  <Clock className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Lista de Espera</span>
+                  <strong className="block text-xl font-black text-orange-700">{countWaitingList}</strong>
+                  <span className="text-[9px] text-slate-500 font-semibold block">Postulaciones en Fila</span>
+                </div>
               </div>
-              <div>
-                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Lista de Espera</span>
-                <strong className="block text-xl font-black text-orange-700">{countWaitingList}</strong>
-                <span className="text-[9px] text-slate-500 font-semibold block">Postulaciones en Fila</span>
-              </div>
-            </div>
 
-            {/* Metric 8: Observados */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
-              <div className="p-3 bg-red-50 text-red-700 rounded-xl">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div>
-                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Observados</span>
-                <strong className="block text-xl font-black text-red-700">{countObserved}</strong>
-                <span className="text-[9px] text-slate-500 font-semibold block">Fichas con Errores</span>
+              {/* Metric 8: Observados */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200">
+                <div className="p-3 bg-red-50 text-red-700 rounded-xl">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Observados</span>
+                  <strong className="block text-xl font-black text-red-700">{countObserved}</strong>
+                  <span className="text-[9px] text-slate-500 font-semibold block">Fichas con Errores</span>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center">
+              <span className="text-xs font-semibold text-slate-400 flex items-center justify-center gap-1.5">
+                <ShieldAlert className="w-4 h-4 text-slate-400" />
+                Estadísticas de admisión ocultas por política de rol
+              </span>
+            </div>
+          )}
 
           {/* Tab content area */}
           <div className="w-full">
             <AnimatePresence mode="wait">
               {/* TAB 1: GESTION DE APICANTES */}
               {activeTab === 'applicants' && (
-                <motion.div
-                  key="applicants"
+                !hasPermission('Ver Dashboard') ? (
+                  <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-3">
+                    <ShieldAlert className="w-12 h-12 text-red-500 mx-auto" />
+                    <h3 className="text-base font-black text-slate-900 uppercase">Acceso Restringido</h3>
+                    <p className="text-xs text-slate-500">No cuenta con el permiso "Ver Dashboard" para visualizar este módulo.</p>
+                  </div>
+                ) : (
+                  <motion.div
+                    key="applicants"
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
@@ -1206,11 +1357,11 @@ export default function AdminDashboardView({
                   >
                     <option value="">-- Sede / Local (Todas) --</option>
                     {filterDistrict ? (
-                      (dynamicSedesMap[filterDistrict] || []).map(sede => (
+                      (dynamicSedesMap[filterDistrict] || []).filter(sede => hasAllSedes || allowedSedes.includes(sede)).map(sede => (
                         <option key={sede} value={sede}>{sede}</option>
                       ))
                     ) : (
-                      Object.values(dynamicSedesMap).flat().map(sede => (
+                      Object.values(dynamicSedesMap).flat().filter(sede => hasAllSedes || allowedSedes.includes(sede)).map(sede => (
                         <option key={sede} value={sede}>{sede}</option>
                       ))
                     )}
@@ -1439,12 +1590,19 @@ export default function AdminDashboardView({
                 </div>
               </div>
             </motion.div>
-          )}
+          ))}
 
           {/* TAB 2: REPORTES Y ESTADISTICAS */}
           {activeTab === 'reports' && (
-            <motion.div
-              key="reports"
+            !hasPermission('Ver reportes') ? (
+              <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-3">
+                <ShieldAlert className="w-12 h-12 text-red-500 mx-auto" />
+                <h3 className="text-base font-black text-slate-900 uppercase">Acceso Restringido</h3>
+                <p className="text-xs text-slate-500">No cuenta con el permiso "Ver reportes" para visualizar este módulo.</p>
+              </div>
+            ) : (
+              <motion.div
+                key="reports"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
@@ -1575,13 +1733,17 @@ export default function AdminDashboardView({
                       onChange={(e) => setSelectedManageSede(e.target.value)}
                       className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-xs bg-white text-slate-700 font-extrabold focus:ring-1 focus:ring-blue-500 cursor-pointer"
                     >
-                      {Object.entries(dynamicSedesMap).map(([dist, sedes]) => (
-                        <optgroup key={dist} label={dist.toUpperCase()}>
-                          {sedes.map(sede => (
-                            <option key={sede} value={sede}>{sede} ({dist})</option>
-                          ))}
-                        </optgroup>
-                      ))}
+                      {Object.entries(dynamicSedesMap).map(([dist, sedes]) => {
+                        const filteredSedes = sedes.filter(sede => hasAllSedes || allowedSedes.includes(sede));
+                        if (filteredSedes.length === 0) return null;
+                        return (
+                          <optgroup key={dist} label={dist.toUpperCase()}>
+                            {filteredSedes.map(sede => (
+                              <option key={sede} value={sede}>{sede} ({dist})</option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
                     </select>
 
                     <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2 mt-3 text-xs">
@@ -1740,17 +1902,24 @@ export default function AdminDashboardView({
                 </div>
               </div>
             </motion.div>
-          )}
+          ))}
 
           {/* TAB 3: GESTIÓN DE DISTRITOS, SEDES Y GRADOS */}
           {activeTab === 'branches_districts' && (
-            <motion.div
-              key="branches_districts"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="space-y-6"
-            >
+            (!hasPermission('Administrar sedes') && !hasPermission('Configuración del sistema')) ? (
+              <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-3">
+                <ShieldAlert className="w-12 h-12 text-red-500 mx-auto" />
+                <h3 className="text-base font-black text-slate-900 uppercase">Acceso Restringido</h3>
+                <p className="text-xs text-slate-500">No cuenta con los permisos requeridos ("Administrar sedes" o "Configuración del sistema") para visualizar este módulo.</p>
+              </div>
+            ) : (
+              <motion.div
+                key="branches_districts"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
               {/* Top description banner */}
               <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-sm border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div className="space-y-1">
@@ -2234,6 +2403,23 @@ export default function AdminDashboardView({
 
               </div>
             </motion.div>
+          ))}
+
+          {/* TAB 4: GESTIÓN DE USUARIOS Y PERMISOS */}
+          {activeTab === 'users' && (
+            !hasPermission('Administrar usuarios') ? (
+              <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-3">
+                <ShieldAlert className="w-12 h-12 text-red-500 mx-auto animate-pulse" />
+                <h3 className="text-base font-black text-slate-900 uppercase">Acceso Restringido</h3>
+                <p className="text-xs text-slate-500">No cuenta con el permiso "Administrar usuarios" para visualizar este módulo.</p>
+              </div>
+            ) : (
+              <UsersManagementView
+                allSedes={allSedes}
+                triggerToast={triggerToast}
+                currentUser={currentUser}
+              />
+            )
           )}
         </AnimatePresence>
       </div>
@@ -2446,6 +2632,172 @@ export default function AdminDashboardView({
                     ) : (
                       <p className="text-slate-400 italic pt-1.5">No asignada (aula se genera tras la matrícula).</p>
                     )}
+                  </div>
+                </div>
+
+                {/* 6. Nuevo Flujo: Gestión de Pasos de Admisión */}
+                <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-200/80 space-y-3">
+                  <h4 className="text-xs font-black uppercase text-blue-900 tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-blue-600" />
+                    <span>Control de Pasos de Admisión & Aprobaciones</span>
+                  </h4>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    {/* A. Validación de Pago Derecho de Admisión */}
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                      <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider">
+                        1. Pago Derecho de Admisión
+                      </span>
+                      {selectedApplicant.paymentComprobante ? (
+                        <div className="space-y-2">
+                          <p className="text-slate-500 font-semibold text-[10px] break-all">
+                            📄 {selectedApplicant.paymentComprobante}
+                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-slate-500">Estado:</span>
+                            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                              selectedApplicant.paymentState === 'paid' ? 'bg-green-100 text-green-800' :
+                              selectedApplicant.paymentState === 'rejected' ? 'bg-red-100 text-red-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {selectedApplicant.paymentState === 'paid' ? 'Aprobado ✓' :
+                               selectedApplicant.paymentState === 'rejected' ? 'Rechazado ❌' :
+                               'En revisión'}
+                            </span>
+                          </div>
+                          
+                          {selectedApplicant.paymentState === 'reviewing' && (
+                            <div className="flex gap-1.5 pt-1">
+                              <button
+                                onClick={() => {
+                                  const updated = {
+                                    ...selectedApplicant,
+                                    paymentState: 'paid' as const
+                                  };
+                                  onSaveRecord(updated);
+                                  setSelectedApplicant(updated);
+                                  triggerToast("💰 Pago de admisión aprobado con éxito.");
+                                }}
+                                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-black py-1 px-1.5 rounded-lg text-[10px] transition cursor-pointer"
+                              >
+                                Aprobar
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const updated = {
+                                    ...selectedApplicant,
+                                    paymentState: 'rejected' as const
+                                  };
+                                  onSaveRecord(updated);
+                                  setSelectedApplicant(updated);
+                                  triggerToast("❌ Pago de admisión rechazado.");
+                                }}
+                                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-black py-1 px-1.5 rounded-lg text-[10px] transition cursor-pointer"
+                              >
+                                Rechazar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-slate-400 italic text-[11px] pt-1">Ningún comprobante cargado.</p>
+                      )}
+                    </div>
+
+                    {/* B. Asistencia Cita Psicopedagógica */}
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                      <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider">
+                        2. Cita Psicopedagógica
+                      </span>
+                      {selectedApplicant.appointment ? (
+                        <div className="space-y-2">
+                          <div className="text-[10px] text-slate-600 leading-tight">
+                            <p><strong>Fecha:</strong> {selectedApplicant.appointment.dateLabel || selectedApplicant.appointment.date}</p>
+                            <p><strong>Horario:</strong> {selectedApplicant.appointment.timeSlot || selectedApplicant.appointment.time}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-slate-500">Asistencia:</span>
+                            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                              selectedApplicant.appointmentApproved ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {selectedApplicant.appointmentApproved ? 'Aprobada ✓' : 'Pendiente'}
+                            </span>
+                          </div>
+
+                          {!selectedApplicant.appointmentApproved && (
+                            <button
+                              onClick={() => {
+                                const updated = {
+                                  ...selectedApplicant,
+                                  appointmentApproved: true
+                                };
+                                onSaveRecord(updated);
+                                setSelectedApplicant(updated);
+                                triggerToast("📅 Asistencia a cita psicopedagógica aprobada.");
+                              }}
+                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-1 px-2 rounded-lg text-[10px] transition cursor-pointer"
+                            >
+                              Registrar Asistencia
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-slate-400 italic text-[11px] pt-1">Cita no agendada todavía.</p>
+                      )}
+                    </div>
+
+                    {/* C. Evaluación Académica (solo grados aplicables) */}
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                      <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider">
+                        3. Evaluación Académica
+                      </span>
+                      {(() => {
+                        const gradeName = selectedApplicant.formState.postulacion.gradoIngreso;
+                        const requiresEval = gradeName && !gradeName.toLowerCase().includes('inicial');
+                        
+                        if (!requiresEval) {
+                          return <p className="text-slate-400 italic text-[11px] pt-1">No aplica para este grado (Inicial).</p>;
+                        }
+
+                        if (selectedApplicant.academicEvaluation) {
+                          return (
+                            <div className="space-y-2">
+                              <div className="text-[10px] text-slate-600 leading-tight">
+                                <p><strong>Fecha:</strong> {selectedApplicant.academicEvaluation.dateLabel}</p>
+                                <p><strong>Horario:</strong> {selectedApplicant.academicEvaluation.timeSlot}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-bold text-slate-500">Asistencia:</span>
+                                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                                  selectedApplicant.academicEvaluationApproved ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {selectedApplicant.academicEvaluationApproved ? 'Aprobada ✓' : 'Pendiente'}
+                                </span>
+                              </div>
+
+                              {!selectedApplicant.academicEvaluationApproved && (
+                                <button
+                                  onClick={() => {
+                                    const updated = {
+                                      ...selectedApplicant,
+                                      academicEvaluationApproved: true
+                                    };
+                                    onSaveRecord(updated);
+                                    setSelectedApplicant(updated);
+                                    triggerToast("📝 Asistencia a evaluación académica aprobada.");
+                                  }}
+                                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-1 px-2 rounded-lg text-[10px] transition cursor-pointer"
+                                >
+                                  Registrar Asistencia
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        return <p className="text-slate-400 italic text-[11px] pt-1">Evaluación no agendada todavía.</p>;
+                      })()}
+                    </div>
                   </div>
                 </div>
               </div>

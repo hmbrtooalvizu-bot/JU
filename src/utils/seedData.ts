@@ -5,14 +5,27 @@ export interface AdmissionRecord {
   username: string;
   password: string;
   status: 'documents_pending' | 'documents_submitted' | 'documents_verified' | 'interview_scheduled' | 'interview_completed' | 'admitted' | 'enrolled' | 'observed' | 'waiting_list';
-  paymentState: 'pending' | 'paid';
+  paymentState: 'pending' | 'reviewing' | 'paid' | 'rejected';
   paymentAmount: number;
   paymentDate?: string;
+  paymentCode?: string;
+  paymentComprobante?: string | null;
   appointment?: {
     date: string;
     time: string;
     psychologist?: string;
+    dateKey?: string;
+    dateLabel?: string;
+    timeSlot?: string;
   } | null;
+  appointmentApproved?: boolean;
+  academicEvaluation?: {
+    dateKey: string;
+    dateLabel: string;
+    timeSlot: string;
+  } | null;
+  academicEvaluationApproved?: boolean;
+  fichaCompletedAt?: string;
   assignedClassroom?: string | null;
   documents: {
     dniPostulante: string | null;

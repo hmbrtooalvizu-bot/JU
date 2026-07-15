@@ -1,6 +1,6 @@
 {
   "name": "Ficha de Admisión Juventud Científica",
   "description": "Formulario oficial de postulación y ficha de admisión para el año lectivo 2027 del Colegio Juventud Científica.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

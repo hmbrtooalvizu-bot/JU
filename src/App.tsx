@@ -824,6 +824,7 @@ export default function App() {
         {activeView === 'dashboard' && currentUser ? (
           currentUser.role === 'admin' ? (
             <AdminDashboardView 
+              currentUser={currentUser}
               records={records}
               onSaveRecord={(record) => {
                 const index = records.findIndex(r => r.id === record.id);
@@ -861,6 +862,10 @@ export default function App() {
                 const updated = records.filter(r => r.id !== id);
                 setRecords(updated);
                 localStorage.setItem('jc_admissions_records', JSON.stringify(updated));
+              }}
+              onClearRecords={() => {
+                setRecords([]);
+                localStorage.setItem('jc_admissions_records', JSON.stringify([]));
               }}
             />
           ) : (

@@ -22,7 +22,10 @@ import {
   Clock,
   Lock,
   Users,
-  PlusCircle
+  PlusCircle,
+  Camera,
+  RotateCw,
+  X
 } from 'lucide-react';
 import { downloadConstanciaPDF } from '../utils/pdfGenerator';
 
@@ -44,6 +47,185 @@ export default function DashboardView({
   onRegisterSibling
 }: DashboardViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<'ficha' | 'documentos' | 'cita' | 'matricula'>('ficha');
+  const [selectedStepId, setSelectedStepId] = useState<number>(1);
+  const [selectedEvalDate, setSelectedEvalDate] = useState<string>('');
+  const [selectedEvalTime, setSelectedEvalTime] = useState<string>('');
+
+  const evalTimeSlots = ['9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM'];
+
+  const getSaturdaysRange = (startDateStr: string) => {
+    const dates = [];
+    const start = startDateStr ? new Date(startDateStr) : new Date();
+    // Up to 30 days
+    for (let i = 0; i < 30; i++) {
+      const current = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
+      if (current.getDay() === 6) { // 6 = Saturday
+        const key = current.toISOString().split('T')[0];
+        const label = current.toLocaleDateString('es-PE', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        });
+        dates.push({ key, label: label.charAt(0).toUpperCase() + label.slice(1) });
+      }
+    }
+    return dates;
+  };
+
+  const evalSaturdays = React.useMemo(() => {
+    const start = currentUser?.fichaCompletedAt || currentUser?.createdAt || new Date().toISOString();
+    return getSaturdaysRange(start);
+  }, [currentUser?.fichaCompletedAt, currentUser?.createdAt]);
+
+  useEffect(() => {
+    if (evalSaturdays.length > 0 && !selectedEvalDate) {
+      setSelectedEvalDate(evalSaturdays[0].key);
+    }
+  }, [evalSaturdays, selectedEvalDate]);
+
+  useEffect(() => {
+    if (!selectedEvalTime) {
+      setSelectedEvalTime(evalTimeSlots[0]);
+    }
+  }, [selectedEvalTime]);
+
+  const gradeRequiresEvaluation = (gradeName: string) => {
+    if (!gradeName) return false;
+    const gn = gradeName.toLowerCase();
+    return !gn.includes('inicial');
+  };
+
+  // Find all records belonging to the same family code
+  const familyRecords = React.useMemo(() => {
+    if (!currentUser || !currentUser.formState?.fichaFamilia?.codigoFamilia) return [];
+    return records.filter(r => 
+      !r.isDeleted && 
+      (r.formState?.fichaFamilia?.codigoFamilia === currentUser.formState?.fichaFamilia?.codigoFamilia || 
+       r.username === currentUser.username)
+    );
+  }, [records, currentUser]);
+
+  const isNewStudent = currentUser?.formState?.postulacion?.tipoAlumno === 'nuevo';
+  const isPrivateSchool = isNewStudent && (currentUser?.formState?.personales?.tipoColegioProcedencia === 'Colegio Particular');
+  
+  const requiresGoodConduct = (gradeName: string) => {
+    if (!gradeName) return false;
+    const g = gradeName.toUpperCase();
+    if (g.includes("5TO") || g.includes("6TO") || g.includes("SECUNDARIA") || g.includes("PREUNIVERSITARIO")) {
+      return true;
+    }
+    return false;
+  };
+  const isconductRequired = isNewStudent && requiresGoodConduct(currentUser?.formState?.postulacion?.gradoIngreso || '');
+
+  // Document management helpers
+  const docsList = React.useMemo(() => {
+    const list = [];
+    
+    // 1. DNI del Apoderado (Always requested, but shared)
+    list.push({ key: 'dniApoderado', label: 'DNI del Apoderado' });
+    
+    // 2. DNI Alumno (Always required, individual)
+    list.push({ key: 'dniPostulante', label: 'DNI del Alumno Postulante' });
+    
+    // 3. Recibo de Servicio (Always required, shared)
+    list.push({ key: 'reciboServicio', label: 'Recibo de Servicio' });
+    
+    // 4. Constancia de No Adeudo (only if Colegio Particular and New student, individual)
+    if (isPrivateSchool) {
+      list.push({ key: 'constanciaNoAdeudo', label: 'Constancia de No Adeudo de Pensiones del nido/colegio de procedencia' });
+    }
+    
+    // 5. Carta de Buena Conducta (only if 5to de Primaria up and New student, individual)
+    if (isconductRequired) {
+      list.push({ key: 'cartaConducta', label: 'Carta de Buena Conducta' });
+    }
+    
+    return list;
+  }, [isPrivateSchool, isconductRequired]);
+
+  const SHARED_DOC_KEYS = ['dniApoderado', 'reciboServicio'];
+  const uploadedCount = docsList.filter(doc => {
+    const isShared = SHARED_DOC_KEYS.includes(doc.key);
+    return isShared
+      ? familyRecords.some(r => !!r.documents?.[doc.key])
+      : !!currentUser.documents?.[doc.key];
+  }).length;
+  const isDocsComplete = uploadedCount === docsList.length;
+  const isApptBooked = !!currentUser.appointment;
+  const isMatriculado = currentUser.status === 'matriculado';
+
+  const steps = React.useMemo(() => {
+    // 1. Ficha Técnica
+    const isFichaCompleted = currentUser?.status !== 'pending_approval' && currentUser?.status !== 'ready_for_completion';
+    const step1Status = isFichaCompleted ? 'completed' : (currentUser?.status === 'ready_for_completion' ? 'pending_action' : 'reviewing');
+
+    // 2. Documentos
+    const isStep2Unlocked = isFichaCompleted;
+    const isStep2DocsUploaded = isDocsComplete;
+    const isStep2Approved = isFichaCompleted && 
+                           currentUser?.status !== 'documents_pending' && 
+                           currentUser?.status !== 'documents_submitted' &&
+                           currentUser?.status !== 'observed';
+    const step2Status = !isStep2Unlocked 
+      ? 'locked' 
+      : (isStep2Approved ? 'completed' : (isStep2DocsUploaded ? 'reviewing' : 'pending_action'));
+
+    // 3. Pago por Derecho de Admisión
+    const isStep3Unlocked = isStep2Approved;
+    const isStep3Paid = currentUser?.paymentState === 'paid';
+    const isStep3Reviewing = currentUser?.paymentState === 'reviewing';
+    const isStep3Rejected = currentUser?.paymentState === 'rejected';
+    const step3Status = !isStep3Unlocked 
+      ? 'locked' 
+      : (isStep3Paid ? 'completed' : (isStep3Reviewing ? 'reviewing' : (isStep3Rejected ? 'rejected' : 'pending_action')));
+
+    // 4. Cita Psicopedagógica
+    const isStep4Unlocked = isStep3Paid;
+    const isStep4Booked = !!currentUser?.appointment;
+    const isStep4Approved = !!currentUser?.appointmentApproved;
+    const step4Status = !isStep4Unlocked 
+      ? 'locked' 
+      : (isStep4Approved ? 'completed' : (isStep4Booked ? 'reviewing' : 'pending_action'));
+
+    // 5. Evaluación Académica
+    const requiresEval = gradeRequiresEvaluation(currentUser?.formState?.postulacion?.gradoIngreso);
+    const isStep5Unlocked = isStep4Unlocked && isStep4Approved;
+    const isStep5Booked = !!currentUser?.academicEvaluation;
+    const isStep5Approved = !requiresEval || !!currentUser?.academicEvaluationApproved;
+    const step5Status = !requiresEval 
+      ? 'not_applicable' 
+      : (!isStep5Unlocked ? 'locked' : (isStep5Approved ? 'completed' : (isStep5Booked ? 'reviewing' : 'pending_action')));
+
+    // 6. Estado Final
+    const isStep6Unlocked = requiresEval 
+      ? (isStep5Unlocked && isStep5Approved) 
+      : (isStep4Unlocked && isStep4Approved);
+    const isAdmittedOrEnrolled = currentUser?.status === 'admitted' || currentUser?.status === 'enrolled' || currentUser?.status === 'matriculado';
+    const step6Status = !isStep6Unlocked 
+      ? 'locked' 
+      : (isAdmittedOrEnrolled ? 'completed' : 'reviewing');
+
+    return [
+      { id: 1, label: 'Ficha Técnica', status: step1Status, description: 'Datos iniciales del postulante' },
+      { id: 2, label: 'Documentos', status: step2Status, description: 'Carga de documentación oficial' },
+      { id: 3, label: 'Pago de Admisión', status: step3Status, description: 'Derecho de examen de admisión' },
+      { id: 4, label: 'Cita Psicopedagógica', status: step4Status, description: 'Entrevista psicológica familiar' },
+      { id: 5, label: 'Evaluación Académica', status: step5Status, description: 'Evaluación para Primaria / Secundaria' },
+      { id: 6, label: 'Estado Final', status: step6Status, description: 'Aprobación institucional y matrícula' }
+    ];
+  }, [currentUser, isDocsComplete]);
+
+  // Auto-select current active step when child changes
+  useEffect(() => {
+    const currentActiveStep = steps.find(s => s.status !== 'completed' && s.status !== 'not_applicable');
+    if (currentActiveStep) {
+      setSelectedStepId(currentActiveStep.id);
+    } else {
+      setSelectedStepId(6);
+    }
+  }, [currentUser?.id]);
   
   // States for completion of remaining fields
   const [isCompletingForm, setIsCompletingForm] = useState<boolean>(false);
@@ -124,13 +306,237 @@ export default function DashboardView({
     '04:00 PM - 05:00 PM',
   ];
 
-  // Document management helpers
-  const docsList = [
-    { key: 'dniPostulante', label: 'Copia del DNI del Postulante' },
-    { key: 'dniApoderado', label: 'Copia del DNI del Apoderado Legal' },
-    { key: 'libretaEstudios', label: 'Copia de Libreta de Notas / Certificado del año anterior' },
-    { key: 'constanciaNoAdeudo', label: 'Constancia de No Adeudo de pensiones del nido/colegio de procedencia' },
-  ];
+  // Helper to handle updating document state and propagating shared files among siblings
+  const handleUpdateDocumentState = (docKey: string, fileName: string | null) => {
+    const SHARED_DOC_KEYS = ['dniApoderado', 'reciboServicio'];
+    const isShared = SHARED_DOC_KEYS.includes(docKey);
+
+    // Update current user's document
+    const currentUserDocs = {
+      ...currentUser.documents,
+      [docKey]: fileName
+    };
+
+    // Helper to calculate whether all documents are complete for a specific record
+    const checkDocsCompleteForRecord = (record: any, customDocs: any) => {
+      const recordIsNew = record?.formState?.postulacion?.tipoAlumno === 'nuevo';
+      const recordIsPrivate = recordIsNew && (record.formState?.personales?.tipoColegioProcedencia === 'Colegio Particular');
+      const recordIsConductRequired = recordIsNew && requiresGoodConduct(record.formState?.postulacion?.gradoIngreso || '');
+
+      const recordDocsList = [
+        { key: 'dniApoderado' },
+        { key: 'dniPostulante' },
+        { key: 'reciboServicio' }
+      ];
+      if (recordIsPrivate) {
+        recordDocsList.push({ key: 'constanciaNoAdeudo' });
+      }
+      if (recordIsConductRequired) {
+        recordDocsList.push({ key: 'cartaConducta' });
+      }
+
+      return recordDocsList.every(doc => {
+        const docIsShared = SHARED_DOC_KEYS.includes(doc.key);
+        if (docIsShared) {
+          if (doc.key === docKey) {
+            return !!fileName;
+          }
+          return familyRecords.some(r => r.id === record.id ? !!customDocs[doc.key] : !!r.documents?.[doc.key]);
+        } else {
+          return record.id === currentUser.id ? !!customDocs[doc.key] : !!record.documents?.[doc.key];
+        }
+      });
+    };
+
+    const isCurrentUserComplete = checkDocsCompleteForRecord(currentUser, currentUserDocs);
+    const newCurrentUserStatus = isCurrentUserComplete ? 'appointment_pending' : 'documents_pending';
+
+    const updatedCurrentUser = {
+      ...currentUser,
+      documents: currentUserDocs,
+      status: currentUser.status === 'documents_pending' || currentUser.status === 'appointment_pending'
+        ? newCurrentUserStatus 
+        : currentUser.status
+    };
+
+    saveRecord(updatedCurrentUser);
+    setCurrentUser(updatedCurrentUser);
+
+    // Propagate to other family records if shared
+    if (isShared) {
+      familyRecords.forEach(sibling => {
+        if (sibling.id !== currentUser.id) {
+          const siblingDocs = {
+            ...sibling.documents,
+            [docKey]: fileName
+          };
+
+          const isSiblingComplete = checkDocsCompleteForRecord(sibling, siblingDocs);
+          const newSiblingStatus = isSiblingComplete ? 'appointment_pending' : 'documents_pending';
+
+          const updatedSibling = {
+            ...sibling,
+            documents: siblingDocs,
+            status: sibling.status === 'documents_pending' || sibling.status === 'appointment_pending'
+              ? newSiblingStatus
+              : sibling.status
+          };
+
+          saveRecord(updatedSibling);
+        }
+      });
+    }
+  };
+
+  // Camera capture states
+  const [activeCameraDocKey, setActiveCameraDocKey] = useState<string | null>(null);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [currentDeviceIndex, setCurrentDeviceIndex] = useState<number>(0);
+  const [showFlash, setShowFlash] = useState<boolean>(false);
+
+  // Hook to handle video element stream assignment
+  useEffect(() => {
+    const video = document.getElementById('camera-video') as HTMLVideoElement;
+    if (video && cameraStream) {
+      video.srcObject = cameraStream;
+    }
+  }, [cameraStream, activeCameraDocKey]);
+
+  // Hook to clean up tracks on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
+  const handleOpenCamera = async (docKey: string) => {
+    setActiveCameraDocKey(docKey);
+    setCapturedImage(null);
+    setCameraError(null);
+    setShowFlash(false);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+      setCameraStream(stream);
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoIn = devices.filter(d => d.kind === 'videoinput');
+      setVideoDevices(videoIn);
+      
+      const activeTrack = stream.getVideoTracks()[0];
+      if (activeTrack) {
+        const settings = activeTrack.getSettings();
+        const activeIdx = videoIn.findIndex(d => d.deviceId === settings.deviceId);
+        if (activeIdx !== -1) {
+          setCurrentDeviceIndex(activeIdx);
+        }
+      }
+    } catch (err: any) {
+      console.error("Error opening camera:", err);
+      setCameraError("No se pudo acceder a la cámara. Por favor otorgue los permisos correspondientes o use la opción de cargar archivo directamente.");
+      triggerToast("⚠️ No se pudo acceder a la cámara. Verifique los permisos.");
+    }
+  };
+
+  const handleSwitchCamera = async () => {
+    if (videoDevices.length <= 1 || !cameraStream) return;
+
+    cameraStream.getTracks().forEach(track => track.stop());
+
+    const nextIdx = (currentDeviceIndex + 1) % videoDevices.length;
+    setCurrentDeviceIndex(nextIdx);
+    const nextDevice = videoDevices[nextIdx];
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: nextDevice.deviceId } }
+      });
+      setCameraStream(stream);
+    } catch (err) {
+      console.error("Error switching camera:", err);
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        setCameraStream(fallbackStream);
+      } catch (e) {
+        setCameraError("No se pudo cambiar de cámara.");
+      }
+    }
+  };
+
+  const handleCloseCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+    }
+    setCameraStream(null);
+    setActiveCameraDocKey(null);
+    setCapturedImage(null);
+    setCameraError(null);
+    setVideoDevices([]);
+  };
+
+  const handleCapturePhoto = () => {
+    const video = document.getElementById('camera-video') as HTMLVideoElement;
+    if (!video) return;
+
+    setShowFlash(true);
+    setTimeout(() => setShowFlash(false), 200);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg');
+      setCapturedImage(dataUrl);
+    }
+  };
+
+  const handleConfirmCapturedPhoto = () => {
+    if (!activeCameraDocKey || !capturedImage) return;
+
+    const docKey = activeCameraDocKey;
+    const simulatedFileName = `foto_${docKey}_capturada.jpg`;
+
+    setUploadingDoc(docKey);
+    setUploadProgress(10);
+    handleCloseCamera();
+
+    const interval = setInterval(() => {
+      setUploadProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          setTimeout(() => {
+            if (docKey === 'paymentComprobante') {
+              const updated = {
+                ...currentUser,
+                paymentComprobante: simulatedFileName,
+                paymentState: 'reviewing',
+                paymentDate: new Date().toLocaleDateString('es-PE')
+              };
+              saveRecord(updated);
+              setCurrentUser(updated);
+              setUploadingDoc(null);
+              triggerToast(`✨ Foto de comprobante guardada con éxito.`);
+            } else {
+              handleUpdateDocumentState(docKey, simulatedFileName);
+              setUploadingDoc(null);
+              triggerToast(`✨ Foto guardada con éxito para "${docsList.find(d => d.key === docKey)?.label || docKey}".`);
+            }
+          }, 300);
+          return 100;
+        }
+        return prev + 30;
+      });
+    }, 200);
+  };
 
   const handleSimulatedUpload = (docKey: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -138,30 +544,12 @@ export default function DashboardView({
       setUploadingDoc(docKey);
       setUploadProgress(10);
 
-      // Simulate step-by-step progress
       const interval = setInterval(() => {
         setUploadProgress((prev) => {
           if (prev >= 100) {
             clearInterval(interval);
             setTimeout(() => {
-              // Update state
-              const updatedDocs = {
-                ...currentUser.documents,
-                [docKey]: file.name
-              };
-              
-              // Recalculate status
-              const totalUploaded = Object.values(updatedDocs).filter(Boolean).length;
-              const newStatus = totalUploaded === 4 ? 'appointment_pending' : 'documents_pending';
-
-              const updatedRecord = {
-                ...currentUser,
-                documents: updatedDocs,
-                status: currentUser.status === 'documents_pending' ? newStatus : currentUser.status
-              };
-
-              saveRecord(updatedRecord);
-              setCurrentUser(updatedRecord);
+              handleUpdateDocumentState(docKey, file.name);
               setUploadingDoc(null);
               triggerToast(`✨ El documento "${file.name}" se cargó con éxito.`);
             }, 300);
@@ -174,20 +562,50 @@ export default function DashboardView({
   };
 
   const handleRemoveDoc = (docKey: string) => {
-    const updatedDocs = {
-      ...currentUser.documents,
-      [docKey]: null
-    };
-
-    const updatedRecord = {
-      ...currentUser,
-      documents: updatedDocs,
-      status: 'documents_pending' // Revert status if documents are incomplete
-    };
-
-    saveRecord(updatedRecord);
-    setCurrentUser(updatedRecord);
+    handleUpdateDocumentState(docKey, null);
     triggerToast("🗑️ Documento removido.");
+  };
+
+  const handlePaymentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setUploadingDoc('paymentComprobante');
+      setUploadProgress(10);
+
+      const interval = setInterval(() => {
+        setUploadProgress((prev) => {
+          if (prev >= 100) {
+            clearInterval(interval);
+            setTimeout(() => {
+              const updated = {
+                ...currentUser,
+                paymentComprobante: file.name,
+                paymentState: 'reviewing',
+                paymentDate: new Date().toLocaleDateString('es-PE')
+              };
+              saveRecord(updated);
+              setCurrentUser(updated);
+              setUploadingDoc(null);
+              triggerToast(`✨ Comprobante "${file.name}" cargado con éxito. Estado: En revisión.`);
+            }, 300);
+            return 100;
+          }
+          return prev + 30;
+        });
+      }, 200);
+    }
+  };
+
+  const handleRemovePayment = () => {
+    const updated = {
+      ...currentUser,
+      paymentComprobante: undefined,
+      paymentState: undefined,
+      paymentDate: undefined
+    };
+    saveRecord(updated);
+    setCurrentUser(updated);
+    triggerToast("🗑️ Comprobante removido.");
   };
 
   // Appointment scheduling helpers
@@ -221,6 +639,36 @@ export default function DashboardView({
     saveRecord(updatedRecord);
     setCurrentUser(updatedRecord);
     triggerToast("📅 Cita cancelada. Por favor agende una nueva fecha.");
+  };
+
+  const handleBookAcademicEvaluation = (slot: string) => {
+    const dateLabel = evalSaturdays.find(d => d.key === selectedEvalDate)?.label || selectedEvalDate;
+    
+    const updatedRecord = {
+      ...currentUser,
+      academicEvaluation: {
+        dateKey: selectedEvalDate,
+        dateLabel,
+        timeSlot: slot
+      },
+      academicEvaluationApproved: false
+    };
+
+    saveRecord(updatedRecord);
+    setCurrentUser(updatedRecord);
+    triggerToast(`📝 Evaluación Académica reservada para el ${dateLabel} a las ${slot}.`);
+  };
+
+  const handleCancelAcademicEvaluation = () => {
+    const updatedRecord = {
+      ...currentUser,
+      academicEvaluation: null,
+      academicEvaluationApproved: false
+    };
+
+    saveRecord(updatedRecord);
+    setCurrentUser(updatedRecord);
+    triggerToast("📝 Evaluación Académica cancelada. Por favor agende una nueva fecha.");
   };
 
   // Classroom assignment resolver
@@ -276,27 +724,12 @@ export default function DashboardView({
   const level = currentUser.formState.postulacion.nivelEducativo;
   const sede = currentUser.formState.postulacion.sedeLocal;
 
-  const uploadedCount = Object.values(currentUser.documents || {}).filter(Boolean).length;
-  const isDocsComplete = uploadedCount === 4;
-  const isApptBooked = !!currentUser.appointment;
-  const isMatriculado = currentUser.status === 'matriculado';
-
   // Copy family credentials to clipboard
   const copyCredentials = () => {
     const credText = `Portal Admisión Juventud Científica 2027\nUsuario: ${currentUser.username}\nContraseña: ${currentUser.password}`;
     navigator.clipboard.writeText(credText);
     triggerToast("📋 Datos de acceso copiados al portapapeles.");
   };
-
-  // Find all records belonging to the same family code
-  const familyRecords = React.useMemo(() => {
-    if (!currentUser || !currentUser.formState?.fichaFamilia?.codigoFamilia) return [];
-    return records.filter(r => 
-      !r.isDeleted && 
-      (r.formState?.fichaFamilia?.codigoFamilia === currentUser.formState?.fichaFamilia?.codigoFamilia || 
-       r.username === currentUser.username)
-    );
-  }, [records, currentUser]);
 
   return (
     <div className="w-full max-w-5xl space-y-6">
@@ -401,152 +834,88 @@ export default function DashboardView({
       </div>
 
       {/* 2. Process Tracking Bar (Interactive steps status) */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 bg-white rounded-3xl shadow-sm border border-slate-200 p-4 gap-3 text-center no-print">
-        {/* Step 1: Ficha */}
-        <div className="p-3 bg-green-50/50 rounded-2xl border border-green-200/50 flex flex-col items-center justify-center">
-          <div className="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center text-sm font-bold shadow-xs mb-1.5">
-            ✓
-          </div>
-          <span className="block text-xs font-extrabold text-slate-800">1. Ficha Técnica</span>
-          <span className="block text-[10px] text-green-600 font-bold mt-0.5">Completado</span>
-        </div>
+      <div className="bg-white rounded-3xl p-5 shadow-xs border border-slate-200/80 space-y-4 no-print mb-6">
+        <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">Flujo del Proceso de Admisión 2027</h4>
+        
+        {/* Progress bar line and steps */}
+        <div className="relative flex justify-between items-center max-w-4xl mx-auto px-4 py-2 overflow-x-auto gap-4 md:gap-0 scrollbar-none">
+          
+          {/* Horizontal connecting line */}
+          <div className="absolute top-[28px] left-[40px] right-[40px] h-[3px] bg-slate-100 -z-0 hidden md:block" />
 
-        {/* Step 2: Documents */}
-        <div className={`p-3 rounded-2xl border flex flex-col items-center justify-center ${
-          isDocsComplete 
-            ? 'bg-green-50/50 border-green-200/50' 
-            : 'bg-amber-50/50 border-amber-200/50'
-        }`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shadow-xs mb-1.5 ${
-            isDocsComplete ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'
-          }`}>
-            {isDocsComplete ? '✓' : '2'}
-          </div>
-          <span className="block text-xs font-extrabold text-slate-800">2. Documentos</span>
-          <span className={`block text-[10px] font-bold mt-0.5 ${
-            isDocsComplete ? 'text-green-600' : 'text-amber-600 animate-pulse'
-          }`}>
-            {isDocsComplete ? 'Completado' : `Cargados: ${uploadedCount} de 4`}
-          </span>
-        </div>
+          {steps.map((st) => {
+            const isSelected = selectedStepId === st.id;
+            const isLocked = st.status === 'locked';
+            const isCompleted = st.status === 'completed';
+            const isReviewing = st.status === 'reviewing';
+            const isRejected = st.status === 'rejected';
+            const isNotApplicable = st.status === 'not_applicable';
 
-        {/* Step 3: Appointment */}
-        <div className={`p-3 rounded-2xl border flex flex-col items-center justify-center ${
-          isApptBooked 
-            ? 'bg-green-50/50 border-green-200/50' 
-            : 'bg-slate-50 border-slate-200'
-        }`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shadow-xs mb-1.5 ${
-            isApptBooked ? 'bg-green-500 text-white' : 'bg-slate-300 text-slate-600'
-          }`}>
-            {isApptBooked ? '✓' : '3'}
-          </div>
-          <span className="block text-xs font-extrabold text-slate-800">3. Cita Psicopedagógica</span>
-          <span className={`block text-[10px] font-bold mt-0.5 ${
-            isApptBooked ? 'text-green-600' : 'text-slate-500'
-          }`}>
-            {isApptBooked ? 'Agendado' : 'Pendiente'}
-          </span>
-        </div>
+            // Choose bullet circle style and icon
+            let circleClass = 'bg-slate-100 border-slate-200 text-slate-400';
+            let iconElement = <span className="font-bold">{st.id}</span>;
 
-        {/* Step 4: Matricula & Class */}
-        <div className={`p-3 rounded-2xl border flex flex-col items-center justify-center ${
-          isMatriculado 
-            ? 'bg-green-50/50 border-green-200/50' 
-            : 'bg-slate-50 border-slate-200'
-        }`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shadow-xs mb-1.5 ${
-            isMatriculado ? 'bg-green-500 text-white' : 'bg-slate-300 text-slate-600'
-          }`}>
-            {isMatriculado ? '✓' : '4'}
-          </div>
-          <span className="block text-xs font-extrabold text-slate-800">4. Matrícula & Aula</span>
-          <span className={`block text-[10px] font-bold mt-0.5 ${
-            isMatriculado ? 'text-green-600' : 'text-slate-500'
-          }`}>
-            {isMatriculado ? 'Matriculado' : 'Pendiente'}
-          </span>
-        </div>
-      </div>
-
-      {/* 3. Navigation Inner Tabs */}
-      <div className="flex border-b border-slate-200 gap-2 overflow-x-auto pb-1 no-print">
-        <button
-          onClick={() => setActiveSubTab('ficha')}
-          className={`pb-3 px-4 text-xs font-bold transition flex items-center gap-1.5 shrink-0 border-b-2 cursor-pointer ${
-            activeSubTab === 'ficha'
-              ? 'border-brand-navy text-brand-navy font-extrabold'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          Ficha & Constancia PDF
-        </button>
-
-        <button
-          onClick={() => {
-            if (isLockedState) {
-              triggerToast("🔒 Esta sección estará disponible después de que el Administrador apruebe su solicitud y complete la ficha técnica.");
-            } else {
-              setActiveSubTab('documentos');
+            if (isCompleted) {
+              circleClass = 'bg-emerald-500 border-emerald-500 text-white shadow-emerald-200';
+              iconElement = <Check className="w-4 h-4 text-white" />;
+            } else if (isReviewing) {
+              circleClass = 'bg-amber-400 border-amber-400 text-white shadow-amber-100';
+              iconElement = <Clock className="w-4 h-4 text-white" />;
+            } else if (isRejected) {
+              circleClass = 'bg-rose-500 border-rose-500 text-white shadow-rose-200';
+              iconElement = <X className="w-4 h-4 text-white" />;
+            } else if (isNotApplicable) {
+              circleClass = 'bg-slate-200 border-slate-300 text-slate-500 line-through';
+              iconElement = <Info className="w-3.5 h-3.5" />;
+            } else if (isSelected) {
+              circleClass = 'bg-blue-600 border-blue-600 text-white shadow-blue-200';
+            } else if (!isLocked) {
+              circleClass = 'bg-blue-50 border-blue-300 text-blue-700 font-bold';
             }
-          }}
-          className={`pb-3 px-4 text-xs font-bold transition flex items-center gap-1.5 shrink-0 border-b-2 ${
-            isLockedState 
-              ? 'text-slate-350 cursor-not-allowed border-transparent'
-              : activeSubTab === 'documentos'
-                ? 'border-brand-navy text-brand-navy font-extrabold cursor-pointer'
-                : 'border-transparent text-slate-500 hover:text-slate-700 cursor-pointer'
-          }`}
-        >
-          {isLockedState ? <Lock className="w-3.5 h-3.5 text-slate-300" /> : <Upload className="w-4 h-4" />}
-          Subir Documentos
-        </button>
 
-        <button
-          onClick={() => {
-            if (isLockedState) {
-              triggerToast("🔒 Esta sección estará disponible después de que el Administrador apruebe su solicitud y complete la ficha técnica.");
-            } else {
-              setActiveSubTab('cita');
-            }
-          }}
-          className={`pb-3 px-4 text-xs font-bold transition flex items-center gap-1.5 shrink-0 border-b-2 ${
-            isLockedState 
-              ? 'text-slate-350 cursor-not-allowed border-transparent'
-              : activeSubTab === 'cita'
-                ? 'border-brand-navy text-brand-navy font-extrabold cursor-pointer'
-                : 'border-transparent text-slate-500 hover:text-slate-700 cursor-pointer'
-          }`}
-        >
-          {isLockedState ? <Lock className="w-3.5 h-3.5 text-slate-300" /> : <Calendar className="w-4 h-4" />}
-          Cita Psicológica
-        </button>
+            return (
+              <div 
+                key={st.id} 
+                className={`flex flex-col items-center text-center relative z-10 shrink-0 max-w-[120px] ${isLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                onClick={() => {
+                  if (isLocked) {
+                    triggerToast(`🔒 La etapa "${st.label}" se encuentra bloqueada. Debe completar y recibir la aprobación de las etapas previas.`);
+                  } else {
+                    setSelectedStepId(st.id);
+                  }
+                }}
+              >
+                <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all duration-200 shadow-md ${circleClass} ${isSelected ? 'scale-110 ring-4 ring-blue-100' : 'hover:scale-105'}`}>
+                  {iconElement}
+                </div>
+                
+                <span className={`text-[10px] font-black uppercase tracking-tight mt-2 ${isSelected ? 'text-blue-600' : isLocked ? 'text-slate-400' : 'text-slate-700'}`}>
+                  {st.label}
+                </span>
 
-        <button
-          onClick={() => {
-            if (isLockedState) {
-              triggerToast("🔒 Esta sección estará disponible después de que el Administrador apruebe su solicitud y complete la ficha técnica.");
-            } else {
-              setActiveSubTab('matricula');
-            }
-          }}
-          className={`pb-3 px-4 text-xs font-bold transition flex items-center gap-1.5 shrink-0 border-b-2 ${
-            isLockedState 
-              ? 'text-slate-350 cursor-not-allowed border-transparent'
-              : activeSubTab === 'matricula'
-                ? 'border-brand-navy text-brand-navy font-extrabold cursor-pointer'
-                : 'border-transparent text-slate-500 hover:text-slate-700 cursor-pointer'
-          }`}
-        >
-          {isLockedState ? <Lock className="w-3.5 h-3.5 text-slate-300" /> : <ShieldCheck className="w-4 h-4" />}
-          Matrícula & Aula
-        </button>
+                {/* Small status label */}
+                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full mt-1 ${
+                  isCompleted ? 'bg-emerald-100 text-emerald-800' :
+                  isReviewing ? 'bg-amber-100 text-amber-800' :
+                  isRejected ? 'bg-rose-100 text-rose-800' :
+                  isNotApplicable ? 'bg-slate-150 text-slate-500' :
+                  isLocked ? 'bg-slate-100 text-slate-400' : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {isCompleted ? 'Hecho' :
+                   isReviewing ? 'En revisión' :
+                   isRejected ? 'Rechazado' :
+                   isNotApplicable ? 'No aplica' :
+                   isLocked ? 'Bloqueado' : 'Pendiente'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* 4. Tab Content Area */}
       <div className="no-print">
-        {activeSubTab === 'ficha' && (
+        {selectedStepId === 1 && (
           currentUser.status === 'pending_approval' ? (
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 text-center space-y-6 max-w-2xl mx-auto my-6">
               <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
@@ -1361,8 +1730,8 @@ export default function DashboardView({
           </div>
         ))}
 
-        {activeSubTab === 'documentos' && (
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6">
+        {selectedStepId === 2 && (
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
             <div>
               <h3 className="text-base font-extrabold text-slate-900 uppercase">Carga de Documentación Obligatoria</h3>
               <p className="text-xs text-slate-500">Suba los archivos escaneados o fotografías legibles para que la Comisión verifique su expediente.</p>
@@ -1371,8 +1740,14 @@ export default function DashboardView({
             {/* Documents List */}
             <div className="space-y-4">
               {docsList.map((doc) => {
-                const isUploaded = !!currentUser.documents?.[doc.key];
-                const fileName = currentUser.documents?.[doc.key];
+                const SHARED_DOC_KEYS = ['dniApoderado', 'reciboServicio'];
+                const isShared = SHARED_DOC_KEYS.includes(doc.key);
+                const isUploaded = isShared 
+                  ? familyRecords.some(r => !!r.documents?.[doc.key]) 
+                  : !!currentUser.documents?.[doc.key];
+                const fileName = isShared 
+                  ? (familyRecords.find(r => !!r.documents?.[doc.key])?.documents?.[doc.key] || '')
+                  : (currentUser.documents?.[doc.key] || '');
 
                 return (
                   <div key={doc.key} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1410,17 +1785,30 @@ export default function DashboardView({
                           Eliminar y volver a subir
                         </button>
                       ) : (
-                        /* File Input trigger */
-                        <label className="bg-white hover:bg-slate-100 text-brand-navy border border-slate-300 font-black py-1.5 px-4 rounded-xl text-xs transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer hover:scale-101">
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>Seleccionar archivo</span>
-                          <input
-                            type="file"
-                            accept=".pdf,image/*"
-                            onChange={(e) => handleSimulatedUpload(doc.key, e)}
-                            className="hidden"
-                          />
-                        </label>
+                        /* Dual Options: Upload or Take Photo */
+                        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                          {/* File Input trigger */}
+                          <label className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-bold py-2 px-4 rounded-xl text-xs transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer hover:scale-101 active:scale-95">
+                            <Upload className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Cargar archivo</span>
+                            <input
+                              type="file"
+                              accept=".pdf,image/*"
+                              onChange={(e) => handleSimulatedUpload(doc.key, e)}
+                              className="hidden"
+                            />
+                          </label>
+
+                          {/* Camera trigger */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCamera(doc.key)}
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-xl text-xs transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer hover:scale-101 active:scale-95"
+                          >
+                            <Camera className="w-3.5 h-3.5 text-white" />
+                            <span>Tomar Foto</span>
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1438,15 +1826,324 @@ export default function DashboardView({
               <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex gap-3 text-xs text-amber-900 leading-normal">
                 <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                 <div>
-                  <strong>Documentación Incompleta:</strong> Asegúrese de cargar los 4 documentos listados arriba para poder habilitar el último paso de <strong>"Matrícula"</strong>.
+                  <strong>Documentación Incompleta:</strong> Asegúrese de cargar los {docsList.length} documentos listados arriba para poder habilitar el último paso de <strong>"Matrícula"</strong>.
+                </div>
+              </div>
+            )}
+
+            {/* CAMERA MODAL OVERLAY */}
+            <AnimatePresence>
+              {activeCameraDocKey && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                  <motion.div 
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    className="bg-slate-900 border border-slate-800 text-white rounded-3xl overflow-hidden max-w-lg w-full shadow-2xl relative"
+                  >
+                    {/* Modal Header */}
+                    <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-950/40">
+                      <div className="flex items-center gap-2">
+                        <Camera className="w-4 h-4 text-blue-400 animate-pulse" />
+                        <span className="text-xs font-black uppercase tracking-wider text-slate-100">
+                          {docsList.find(d => d.key === activeCameraDocKey)?.label || 'Tomar fotografía'}
+                        </span>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={handleCloseCamera}
+                        className="p-1 rounded-full hover:bg-slate-800 transition cursor-pointer text-slate-400 hover:text-white"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    {/* Camera view area */}
+                    <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
+                      {cameraError ? (
+                        <div className="p-6 text-center space-y-3">
+                          <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
+                          <p className="text-xs text-slate-300 font-bold">{cameraError}</p>
+                          <button
+                            type="button"
+                            onClick={handleCloseCamera}
+                            className="bg-slate-800 hover:bg-slate-700 text-white font-bold py-1.5 px-4 rounded-xl text-xs transition cursor-pointer"
+                          >
+                            Cerrar Ventana
+                          </button>
+                        </div>
+                      ) : !capturedImage ? (
+                        /* Live Stream Video */
+                        <>
+                          <video 
+                            id="camera-video" 
+                            className="w-full h-full object-cover"
+                            autoPlay 
+                            playsInline 
+                            muted
+                          />
+                          {/* Guide frame overlay */}
+                          <div className="absolute inset-6 border-2 border-dashed border-white/30 rounded-2xl pointer-events-none flex items-center justify-center">
+                            <span className="text-[10px] uppercase font-bold text-white/50 tracking-widest bg-slate-950/70 px-3 py-1 rounded-full border border-white/10">
+                              Alinee el documento aquí
+                            </span>
+                          </div>
+
+                          {/* Flash animation */}
+                          {showFlash && (
+                            <div className="absolute inset-0 bg-white z-10 animate-fade-out" />
+                          )}
+                        </>
+                      ) : (
+                        /* Captured static image preview */
+                        <img 
+                          src={capturedImage} 
+                          className="w-full h-full object-contain" 
+                          alt="Vista previa capturada" 
+                        />
+                      )}
+                    </div>
+
+                    {/* Camera controls footer */}
+                    <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between gap-3">
+                      {!capturedImage && !cameraError ? (
+                        /* Live view buttons */
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleCloseCamera}
+                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleCapturePhoto}
+                            className="w-14 h-14 bg-white hover:bg-slate-100 text-slate-900 rounded-full flex items-center justify-center shadow-lg border-4 border-slate-800 focus:outline-none transition active:scale-90 cursor-pointer"
+                            title="Capturar Foto"
+                          >
+                            <div className="w-8 h-8 bg-slate-900 rounded-full hover:bg-slate-800 transition" />
+                          </button>
+
+                          {videoDevices.length > 1 ? (
+                            <button
+                              type="button"
+                              onClick={handleSwitchCamera}
+                              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5 font-bold"
+                              title="Cambiar Cámara"
+                            >
+                              <RotateCw className="w-4 h-4" />
+                              <span className="hidden sm:inline">Girar</span>
+                            </button>
+                          ) : (
+                            <div className="w-20" /> // spacer
+                          )}
+                        </>
+                      ) : capturedImage ? (
+                        /* Approval / Retake view buttons */
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCapturedImage(null);
+                              // Restart stream
+                              if (activeCameraDocKey) {
+                                handleOpenCamera(activeCameraDocKey);
+                              }
+                            }}
+                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                          >
+                            <RotateCw className="w-3.5 h-3.5" />
+                            <span>Volver a tomar</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleConfirmCapturedPhoto}
+                            className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md"
+                          >
+                            <Check className="w-4 h-4" />
+                            <span>Usar esta foto</span>
+                          </button>
+                        </>
+                      ) : (
+                        <div className="w-full flex justify-end">
+                          <button
+                            type="button"
+                            onClick={handleCloseCamera}
+                            className="px-5 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                          >
+                            Cerrar
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {selectedStepId === 3 && (
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900 uppercase">Pago por Derecho de Admisión 2027</h3>
+              <p className="text-xs text-slate-500">
+                Para validar el examen de ingreso, deberá efectuar el pago de S/. 150.00 por derecho de admisión y adjuntar el comprobante correspondiente.
+              </p>
+            </div>
+
+            {currentUser.paymentState === 'paid' ? (
+              <div className="bg-emerald-50 border-2 border-emerald-200 p-6 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 animate-fade-in">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-emerald-500 rounded-2xl text-white flex items-center justify-center shadow-md shrink-0">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs bg-emerald-100 text-emerald-800 font-extrabold px-2.5 py-0.5 rounded-full inline-block uppercase tracking-wider">
+                      Pago Aprobado y Validado
+                    </span>
+                    <h4 className="text-base font-black text-slate-950 uppercase">S/. 150.00 Recibidos Exitosamente</h4>
+                    <p className="text-xs text-slate-700 leading-normal">
+                      Su comprobante ({currentUser.paymentComprobante}) fue verificado y validado por Tesorería el {currentUser.paymentDate || new Date().toLocaleDateString('es-PE')}. La etapa de Cita Psicopedagógica se encuentra desbloqueada.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : currentUser.paymentState === 'reviewing' ? (
+              <div className="space-y-6 animate-fade-in">
+                <div className="bg-amber-50 border border-amber-200 p-5 rounded-3xl flex items-start gap-4">
+                  <div className="w-10 h-10 bg-amber-400 text-white rounded-xl flex items-center justify-center shrink-0 shadow-sm">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs bg-amber-100 text-amber-800 font-extrabold px-2.5 py-0.5 rounded-full inline-block uppercase tracking-wider">
+                      En Proceso de Revisión
+                    </span>
+                    <h4 className="text-sm font-black text-slate-900 uppercase">Comprobante en Verificación por Tesorería</h4>
+                    <p className="text-xs text-slate-600 leading-normal">
+                      Hemos recibido el comprobante <strong>"{currentUser.paymentComprobante}"</strong>. Nuestro departamento administrativo verificará la operación en un plazo máximo de 24 horas laborables. Una vez validado, se habilitará la siguiente fase de Cita Psicopedagógica.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                    <span className="text-xs font-bold text-slate-800">{currentUser.paymentComprobante}</span>
+                  </div>
+                  <button
+                    onClick={handleRemovePayment}
+                    className="text-xs text-red-600 hover:text-red-700 font-extrabold hover:underline"
+                  >
+                    Eliminar y subir otro comprobante
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6 animate-fade-in">
+                {currentUser.paymentState === 'rejected' && (
+                  <div className="bg-rose-50 border border-rose-200 p-4 rounded-2xl flex items-start gap-3 text-xs text-rose-900">
+                    <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-extrabold block uppercase">Comprobante Rechazado / Observado</strong>
+                      Por favor, verifique el monto y los datos de transferencia, y vuelva a subir una captura clara de su recibo de pago.
+                    </div>
+                  </div>
+                )}
+
+                {/* Info about Payment */}
+                <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100 text-xs text-blue-900 flex justify-between items-center flex-wrap gap-4">
+                  <div className="space-y-1">
+                    <p className="font-extrabold text-[11px] uppercase tracking-wider text-blue-700">Código de Pago del Postulante</p>
+                    <p className="text-lg font-mono font-black text-slate-800">
+                      ADM-2027-{currentUser.id.split('-')[1] || '01'}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-slate-400 text-[10px] font-bold uppercase">Monto Total</p>
+                    <p className="text-xl font-black text-slate-900">S/. 150.00</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Modalities */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">Modalidades de Pago</h4>
+                    
+                    <div className="space-y-3">
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                        <span className="font-extrabold block text-blue-800">1. Depósito o Transferencia Bancaria</span>
+                        <div className="space-y-1 text-slate-600">
+                          <p><strong>Banco de la Nación:</strong> Cta Corriente <code>00-015-123456</code></p>
+                          <p className="text-[10px] font-mono">CCI: <code>018-015-000015123456-02</code></p>
+                          <p><strong>BCP (Soles):</strong> Cta Corriente <code>191-9876543-0-21</code></p>
+                          <p className="text-[10px] font-mono">CCI: <code>002-191-009876543021-52</code></p>
+                          <p className="text-[10px] text-slate-500"><strong>Referencia obligatoria:</strong> Indicar código de pago en el detalle.</p>
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1 text-slate-600">
+                        <span className="font-extrabold block text-blue-800">2. Pago Presencial en Colegio</span>
+                        <p>Puede pagar en ventanilla de Tesorería en Sede Principal de Lunes a Viernes de 8:00 AM a 4:30 PM, y Sábados de 9:00 AM a 12:30 PM. Se acepta efectivo y tarjetas.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Upload Receipt */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">Adjuntar Comprobante</h4>
+                    
+                    <div className="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center space-y-4 bg-slate-50/50 flex flex-col justify-center items-center">
+                      <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center shadow-xs">
+                        <Upload className="w-6 h-6" />
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <p className="text-xs font-extrabold text-slate-700">Arrastre y suelte su comprobante de pago aquí</p>
+                        <p className="text-[10px] text-slate-400">Archivos PDF, JPG o PNG de hasta 5MB</p>
+                      </div>
+
+                      {uploadingDoc === 'paymentComprobante' ? (
+                        <div className="flex items-center gap-2 text-xs font-bold text-blue-700 justify-center">
+                          <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                          <span>Subiendo comprobante ({uploadProgress}%)</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2 justify-center pt-2">
+                          <label className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-extrabold py-2 px-4 rounded-xl text-xs transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer hover:scale-101">
+                            <Upload className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Seleccionar Archivo</span>
+                            <input
+                              type="file"
+                              accept=".pdf,image/*"
+                              onChange={handlePaymentUpload}
+                              className="hidden"
+                            />
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCamera('paymentComprobante')}
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2 px-4 rounded-xl text-xs transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer hover:scale-101"
+                          >
+                            <Camera className="w-3.5 h-3.5 text-white" />
+                            <span>Tomar Foto con Cámara</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {activeSubTab === 'cita' && (
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6">
+        {selectedStepId === 4 && (
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
             <div>
               <h3 className="text-base font-extrabold text-slate-900 uppercase">Reserva de Cita Psicopedagógica</h3>
               <p className="text-xs text-slate-500">
@@ -1459,11 +2156,13 @@ export default function DashboardView({
               <div className="bg-green-50 border-2 border-green-200 p-6 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 bg-green-500 rounded-2xl text-white flex items-center justify-center shadow-md mt-0.5 shrink-0">
-                    <CheckCircle2 className="w-6 h-6" />
+                    <Calendar className="w-6 h-6" />
                   </div>
                   <div className="space-y-1">
-                    <span className="block text-xs bg-green-100 text-green-800 font-extrabold px-2.5 py-0.5 rounded-full inline-block uppercase tracking-wider">
-                      Cita Confirmada
+                    <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full inline-block uppercase tracking-wider ${
+                      currentUser.appointmentApproved ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {currentUser.appointmentApproved ? 'Entrevista Realizada y Aprobada' : 'Cita Reservada Exitosamente'}
                     </span>
                     <h4 className="text-sm font-black text-slate-950 uppercase">
                       {currentUser.appointment.dateLabel}
@@ -1479,15 +2178,18 @@ export default function DashboardView({
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={handleCancelAppointment}
-                  className="w-full md:w-auto bg-white hover:bg-red-50 text-red-600 hover:text-red-700 font-bold py-2.5 px-4 rounded-xl border border-red-200 hover:border-red-300 transition duration-150 text-xs shadow-xs cursor-pointer"
-                >
-                  Cancelar / Reagendar Cita
-                </button>
+
+                {!currentUser.appointmentApproved && (
+                  <button
+                    onClick={handleCancelAppointment}
+                    className="w-full md:w-auto bg-white hover:bg-red-50 text-red-600 hover:text-red-700 font-bold py-2.5 px-4 rounded-xl border border-red-200 hover:border-red-300 transition duration-150 text-xs shadow-xs cursor-pointer"
+                  >
+                    Cancelar / Reagendar Cita
+                  </button>
+                )}
               </div>
             ) : (
-              /* Selection scheduling portal */
+              /* Scheduler view if not booked */
               <div className="space-y-5">
                 {/* 1. Date list tabs */}
                 <div className="space-y-2">
@@ -1568,40 +2270,191 @@ export default function DashboardView({
           </div>
         )}
 
-        {activeSubTab === 'matricula' && (
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6">
+        {selectedStepId === 5 && (
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
             <div>
-              <h3 className="text-base font-extrabold text-slate-900 uppercase">Confirmación de Matrícula & Aula Asignada</h3>
+              <h3 className="text-base font-extrabold text-slate-900 uppercase">Evaluación Académica 2027</h3>
+              <p className="text-xs text-slate-500">
+                Paso obligatorio para los niveles de Primaria y Secundaria. Permite registrar y evaluar el rendimiento en las materias de Matemáticas, Lenguaje y Aptitud.
+              </p>
+            </div>
+
+            {!gradeRequiresEvaluation(grade) ? (
+              <div className="p-8 bg-slate-50 rounded-3xl border border-slate-200 text-center space-y-4 max-w-lg mx-auto">
+                <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                  <Sparkles className="w-7 h-7" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-extrabold text-slate-800 uppercase">Evaluación no Requerida para Inicial</h4>
+                  <p className="text-xs text-slate-500 leading-normal">
+                    El grado solicitado es <strong>{grade}</strong> (Nivel {level}). Según los lineamientos escolares del colegio Juventud Científica, los postulantes de nivel Inicial no rinden examen de conocimientos escritos. Su proceso de admisión avanza directamente a la fase final tras la cita psicopedagógica familiar.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedStepId(6)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2 px-6 rounded-xl text-xs shadow-md transition cursor-pointer"
+                >
+                  Continuar al Estado Final
+                </button>
+              </div>
+            ) : currentUser.academicEvaluation ? (
+              <div className="bg-green-50 border-2 border-green-200 p-6 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-green-500 rounded-2xl text-white flex items-center justify-center shadow-md shrink-0">
+                    <CheckCircle2 className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full inline-block uppercase tracking-wider ${
+                      currentUser.academicEvaluationApproved ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {currentUser.academicEvaluationApproved ? 'Evaluación Académica Aprobada' : 'Examen Programado'}
+                    </span>
+                    <h4 className="text-base font-black text-slate-950 uppercase">
+                      Sábado {currentUser.academicEvaluation.dateLabel} a las {currentUser.academicEvaluation.timeSlot}
+                    </h4>
+                    <p className="text-xs text-slate-600 leading-normal">
+                      {currentUser.academicEvaluationApproved
+                        ? `¡Excelente! Se ha verificado el rendimiento académico en nuestro sistema. El postulante superó con éxito las evaluaciones y su estado académico ha sido marcado como APROBADO.`
+                        : `El examen de conocimientos del postulante se encuentra agendado en el sistema. Por favor asista de forma puntual con sus útiles (lápiz, borrador, tajador) en el pabellón de exámenes correspondientes.`}
+                    </p>
+                  </div>
+                </div>
+
+                {!currentUser.academicEvaluationApproved && (
+                  <button
+                    onClick={handleCancelAcademicEvaluation}
+                    className="w-full md:w-auto px-5 py-2.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 hover:border-rose-300 rounded-xl text-xs font-extrabold transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer hover:scale-101 active:scale-95 animate-fade-in"
+                  >
+                    <X className="w-4 h-4" />
+                    Cancelar y Reprogramar
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Date Panel */}
+                  <div className="space-y-4 md:col-span-1">
+                    <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">1. Seleccionar Sábado</h4>
+                    
+                    <div className="space-y-2">
+                      {evalSaturdays.length === 0 ? (
+                        <p className="text-xs text-slate-400">Calculando fechas hábiles...</p>
+                      ) : (
+                        evalSaturdays.map((sat) => (
+                          <button
+                            key={sat.key}
+                            onClick={() => setSelectedEvalDate(sat.key)}
+                            className={`w-full text-left p-3.5 rounded-2xl border transition duration-100 flex justify-between items-center cursor-pointer ${
+                              selectedEvalDate === sat.key
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-100 scale-102 font-bold'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="space-y-0.5">
+                              <span className="block text-xs font-bold leading-tight">{sat.label}</span>
+                              <span className={`block text-[9px] font-bold uppercase ${
+                                selectedEvalDate === sat.key ? 'text-blue-200' : 'text-slate-400'
+                              }`}>
+                                Sábado de Admisiones
+                              </span>
+                            </div>
+                            <Calendar className={`w-4 h-4 ${selectedEvalDate === sat.key ? 'text-white' : 'text-slate-400'}`} />
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Time Panel */}
+                  <div className="md:col-span-2 space-y-4">
+                    <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                      2. Horarios de Examen para el Sábado {evalSaturdays.find(s => s.key === selectedEvalDate)?.label || selectedEvalDate}
+                    </h4>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {evalTimeSlots.map((slot) => (
+                        <button
+                          key={slot}
+                          onClick={() => handleBookAcademicEvaluation(slot)}
+                          className="p-4 rounded-2xl border bg-white border-slate-200 hover:border-blue-500 text-slate-800 hover:bg-blue-50/20 shadow-xs cursor-pointer hover:scale-101 active:scale-95 flex justify-between items-center transition"
+                        >
+                          <div className="space-y-1">
+                            <span className="block text-xs font-extrabold">{slot}</span>
+                            <span className="block text-[9px] font-bold text-blue-600 uppercase">
+                              ✅ DISPONIBILIDAD ILIMITADA
+                            </span>
+                          </div>
+                          <Clock className="w-4.5 h-4.5 text-slate-400" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-blue-50 text-blue-900 border border-blue-100 rounded-2xl text-[11px] leading-normal flex gap-2">
+                  <Info className="w-4.5 h-4.5 text-blue-600 shrink-0 mt-0.5" />
+                  <p>
+                    <strong>Lineamientos de Examen:</strong> Las evaluaciones académicas se rinden exclusivamente los sábados (dentro del límite de 30 días a partir de la finalización de la Ficha Técnica). No hay límite de aforo por turno. No olvide registrar su asistencia en el control de puerta al ingresar al local escolar.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {selectedStepId === 6 && (
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900 uppercase">Estado Final & Asignación de Aula</h3>
               <p className="text-xs text-slate-500">Último paso del proceso de admisión. Inscriba formalmente al alumno y reciba su asignación de aula.</p>
             </div>
 
-            {/* Flow rendering depending on completeness */}
-            {!isDocsComplete || !isApptBooked ? (
-              /* Warn: Requirements pending */
+            {/* Check requirements */}
+            {(!isDocsComplete || 
+              currentUser.paymentState !== 'paid' || 
+              !currentUser.appointmentApproved || 
+              (gradeRequiresEvaluation(grade) && !currentUser.academicEvaluationApproved)
+            ) ? (
               <div className="p-8 bg-slate-50 rounded-3xl border border-slate-200 text-center space-y-4 max-w-lg mx-auto">
                 <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
                   <AlertCircle className="w-7 h-7" />
                 </div>
                 <div className="space-y-1">
-                  <h4 className="text-sm font-extrabold text-slate-800 uppercase">Requisitos Pendientes de Aprobación</h4>
+                  <h4 className="text-sm font-extrabold text-slate-800 uppercase">Etapas Previas Pendientes de Aprobación</h4>
                   <p className="text-xs text-slate-500 leading-normal">
-                    Para poder realizar la matrícula oficial, el sistema requiere que complete previamente las etapas anteriores de carga de documentación y agendamiento de entrevista.
+                    Para poder culminar con el Estado Final y la Matrícula del alumno, todas las etapas previas del flujo guiado deben estar en estado aprobado/completado por el personal del colegio.
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-2 text-xs font-bold">
-                  <div className={`p-3 rounded-2xl border ${isDocsComplete ? 'bg-green-50 text-green-800 border-green-200' : 'bg-white text-slate-400 border-slate-200'}`}>
+                {/* Subchecklist */}
+                <div className="grid grid-cols-2 gap-3 pt-2 text-xs font-bold text-left">
+                  <div className={`p-3 rounded-2xl border flex items-center justify-between ${
+                    isDocsComplete ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-white text-slate-400 border-slate-200'
+                  }`}>
                     <span>1. Documentos</span>
-                    <span className="block text-[10px] font-extrabold mt-0.5 uppercase tracking-wide">
-                      {isDocsComplete ? 'Listo' : 'Pendiente'}
-                    </span>
+                    <span className="text-[10px] uppercase font-black">{isDocsComplete ? '✓' : '...' }</span>
                   </div>
-                  <div className={`p-3 rounded-2xl border ${isApptBooked ? 'bg-green-50 text-green-800 border-green-200' : 'bg-white text-slate-400 border-slate-200'}`}>
-                    <span>2. Cita Psicológica</span>
-                    <span className="block text-[10px] font-extrabold mt-0.5 uppercase tracking-wide">
-                      {isApptBooked ? 'Listo' : 'Pendiente'}
-                    </span>
+                  <div className={`p-3 rounded-2xl border flex items-center justify-between ${
+                    currentUser.paymentState === 'paid' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-white text-slate-400 border-slate-200'
+                  }`}>
+                    <span>2. Pago Derecho</span>
+                    <span className="text-[10px] uppercase font-black">{currentUser.paymentState === 'paid' ? '✓' : '...' }</span>
                   </div>
+                  <div className={`p-3 rounded-2xl border flex items-center justify-between ${
+                    currentUser.appointmentApproved ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-white text-slate-400 border-slate-200'
+                  }`}>
+                    <span>3. Cita Psicop.</span>
+                    <span className="text-[10px] uppercase font-black">{currentUser.appointmentApproved ? '✓' : '...' }</span>
+                  </div>
+                  {gradeRequiresEvaluation(grade) && (
+                    <div className={`p-3 rounded-2xl border flex items-center justify-between ${
+                      currentUser.academicEvaluationApproved ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-white text-slate-400 border-slate-200'
+                    }`}>
+                      <span>4. Eval. Académica</span>
+                      <span className="text-[10px] uppercase font-black">{currentUser.academicEvaluationApproved ? '✓' : '...' }</span>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : isMatriculado ? (
@@ -1665,9 +2518,9 @@ export default function DashboardView({
                   <span className="text-[10px] bg-blue-100 text-blue-800 font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
                     Vacante Aprobada por Admisión
                   </span>
-                  <h4 className="text-base font-black text-slate-900 uppercase">¡Ficha y Requisitos Validados!</h4>
+                  <h4 className="text-base font-black text-slate-900 uppercase">¡Todos los requisitos validados!</h4>
                   <p className="text-xs text-slate-600 leading-normal">
-                    La Comisión de Admisión del Colegio <strong>Juventud Científica</strong> ha validado con éxito sus 4 documentos y la programación de su cita de entrevista psicológica. Haga clic en el botón de abajo para confirmar la matrícula del estudiante.
+                    La Comisión de Admisión del Colegio <strong>Juventud Científica</strong> ha validado con éxito todas las etapas guiadas del postulante. Haga clic en el botón de abajo para confirmar la matrícula oficial y reservar su vacante y aula.
                   </p>
                 </div>
 
