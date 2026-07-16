@@ -237,12 +237,7 @@ export default function LoginView({ records, onLoginSuccess, onSwitchToRegister,
     }
   };
 
-  // Pre-fill with the seeded demo credentials for testing convenience
-  const fillDemoLogin = () => {
-    setUsername('FAM-3209');
-    setPassword('10203040');
-    triggerToast("⚡ Credenciales de prueba autocompletadas.");
-  };
+
 
   return (
     <motion.div 

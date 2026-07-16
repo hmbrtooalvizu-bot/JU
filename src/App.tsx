@@ -441,118 +441,7 @@ export default function App() {
     window.scrollTo({ top: 120, behavior: 'smooth' });
   };
 
-  // Specific value fillers for testing (Developer friendliness!)
-  const fillTestData = () => {
-    setFormState({
-      postulacion: {
-        tipoAlumno: 'nuevo',
-        codigoAntiguo: '',
-        anoProceso: '2027',
-        distritoPostulacion: 'El Agustino',
-        sedeLocal: 'Castillo Las Lilas',
-        gradoIngreso: 'Inicial 5 años',
-        nivelEducativo: 'Inicial',
-        turnoPreferencia: 'Mañana (Turno Regular Inicial)'
-      },
-      personales: {
-        nombres: 'Mateo Sebastián',
-        apellidoPaterno: 'Pérez',
-        apellidoMaterno: 'Ramos',
-        tipoDocumento: 'DNI',
-        numeroDocumento: '76543210',
-        genero: 'Masculino',
-        fechaNacimiento: '2022-04-12',
-        colegioProcedencia: 'Nido Mis Primeros Pasos',
-        nivelGradoProcedencia: 'Inicial 4 años'
-      },
-      lugarAdicionales: {
-        paisNacimiento: 'Perú',
-        departamento: 'Lima',
-        provincia: 'Lima',
-        distrito: 'El Agustino',
-        lugarNacimiento: 'Clínica San Gabriel',
-        viveCon: 'Padres',
-        responsableMatricula: 'Padre',
-        cuentaSeguro: 'Si',
-        aseguradora: 'Pacífico Seguros',
-        religion: 'Católica',
-        iglesiaParroquia: 'San Juan Bautista',
-        bautizado: true,
-        primeraComunion: false
-      },
-      fichaFamilia: {
-        codigoFamilia: 'FAM-3209',
-        nombreFamilia: 'Familia Pérez Ramos',
-        direccionResidencia: 'Av. Ancash 1245',
-        urbanizacionZona: 'San Carlos',
-        distrito: 'El Agustino',
-        estadoCivilPadres: 'Casado(a)',
-        telefonoContacto: '987654321',
-        correoContacto: 'familia.perez@gmail.com',
-        comoEntero: 'Por recomendación de otros padres de familia de la zona que destacan el alto nivel académico y científico.',
-        porQueDeseaIngresar: 'Deseamos una formación integral basada en valores cívicos, disciplina y con un fuerte enfoque en ciencias y matemáticas desde temprana edad para potenciar el talento de nuestro hijo.'
-      },
-      padresTutores: {
-        papa: {
-          fallecido: false,
-          nombres: 'Carlos Alberto',
-          apellidoPaterno: 'Pérez',
-          apellidoMaterno: 'Sánchez',
-          tipoDocumento: 'DNI',
-          numeroDocumento: '10203040',
-          fechaNacimiento: '1988-08-15',
-          celularContacto: '999888777',
-          correoElectronico: 'carlos.perez@gmail.com',
-          direccionDomicilio: '',
-          gradoInstruccion: 'Superior Universitaria',
-          profesionOcupacion: 'Ingeniero de Sistemas',
-          centroTrabajo: 'TechCorp S.A.',
-          cargo: 'Líder de Desarrollo',
-          ingresosMensuales: 'S/. 5,500',
-          horarioLaboral: '09:00 a 18:00'
-        },
-        mama: {
-          fallecido: false,
-          nombres: 'María Elena',
-          apellidoPaterno: 'Ramos',
-          apellidoMaterno: 'Castro',
-          tipoDocumento: 'DNI',
-          numeroDocumento: '40302010',
-          fechaNacimiento: '1990-05-20',
-          celularContacto: '999111222',
-          correoElectronico: 'maria.ramos@gmail.com',
-          direccionDomicilio: '',
-          gradoInstruccion: 'Superior Universitaria',
-          profesionOcupacion: 'Docente de Primaria',
-          centroTrabajo: 'Nido Rayito de Sol',
-          cargo: 'Profesora de Aula',
-          ingresosMensuales: 'S/. 3,200',
-          horarioLaboral: '08:00 a 14:00'
-        },
-        apoderado: {
-          fallecido: false,
-          nombres: '',
-          apellidoPaterno: '',
-          apellidoMaterno: '',
-          tipoDocumento: 'DNI',
-          numeroDocumento: '',
-          fechaNacimiento: '',
-          celularContacto: '',
-          correoElectronico: '',
-          direccionDomicilio: '',
-          gradoInstruccion: 'Superior Universitaria',
-          profesionOcupacion: '',
-          centroTrabajo: '',
-          cargo: '',
-          ingresosMensuales: '',
-          horarioLaboral: ''
-        }
-      }
-    });
-    setApoderadoTipo('papa');
-    setErrors({});
-    triggerToast("✨ ¡Datos de prueba autocompletados con éxito!");
-  };
+
 
   const handleFinalSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -706,17 +595,7 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-4">
-          {!currentUser && activeView === 'form' && (
-            <button 
-              type="button"
-              onClick={fillTestData}
-              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-lg transition duration-150 shadow-md flex items-center space-x-1.5 text-xs hover:scale-[1.02] active:scale-95 cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Autocompletar Demo</span>
-              <span className="sm:hidden">Demo</span>
-            </button>
-          )}
+
 
           {currentUser ? (
             <div className="flex items-center gap-3">
