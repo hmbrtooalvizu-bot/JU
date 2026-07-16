@@ -69,6 +69,10 @@ export interface FamiliarData {
   cargo: string;
   ingresosMensuales: string;
   horarioLaboral: string;
+  pais?: string;
+  departamento?: string;
+  provincia?: string;
+  distrito?: string;
 }
 
 export interface PadresTutoresData {

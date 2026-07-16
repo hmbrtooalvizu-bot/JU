@@ -35,7 +35,7 @@ export const validateStep = (step: number, state: FormState, isSimple?: boolean)
 
     if (step === 2) {
       // For simple registration, Step 2 is now the Apoderado/Contact info (saved in padresTutores.apoderado)
-      const { nombres, apellidoPaterno, apellidoMaterno, numeroDocumento, celularContacto, correoElectronico } = state.padresTutores.apoderado;
+      const { nombres, apellidoPaterno, apellidoMaterno, numeroDocumento, celularContacto, correoElectronico, pais, departamento, provincia, distrito } = state.padresTutores.apoderado;
       if (!nombres.trim()) {
         errors.apoderado_nombres = "El nombre del apoderado o contacto es obligatorio.";
       }
@@ -63,6 +63,18 @@ export const validateStep = (step: number, state: FormState, isSimple?: boolean)
         errors.apoderado_correoElectronico = "El correo electrónico es obligatorio.";
       } else if (!validateEmail(correoElectronico)) {
         errors.apoderado_correoElectronico = "Ingrese un correo electrónico válido.";
+      }
+      if (!pais || !pais.trim()) {
+        errors.apoderado_pais = "El país es obligatorio.";
+      }
+      if (!departamento || !departamento.trim()) {
+        errors.apoderado_departamento = "El departamento es obligatorio.";
+      }
+      if (!provincia || !provincia.trim()) {
+        errors.apoderado_provincia = "La provincia es obligatoria.";
+      }
+      if (!distrito || !distrito.trim()) {
+        errors.apoderado_distrito = "El distrito es obligatorio.";
       }
     }
 

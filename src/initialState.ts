@@ -16,7 +16,11 @@ const initialFamiliar = (parentesco: string): FamiliarData => ({
   centroTrabajo: '',
   cargo: '',
   ingresosMensuales: '',
-  horarioLaboral: ''
+  horarioLaboral: '',
+  pais: 'Perú',
+  departamento: 'Lima',
+  provincia: 'Lima',
+  distrito: 'El Agustino'
 });
 
 export const initialFormState: FormState = {

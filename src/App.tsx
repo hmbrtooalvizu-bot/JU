@@ -67,6 +67,22 @@ import {
   DEFAULT_SEDE_ADDRESSES
 } from './data';
 
+const DEPARTAMENTO_PROVINCIA_MAP: Record<string, string[]> = {
+  "Lima": ["Lima"],
+  "Cusco": ["Cusco"],
+  "Arequipa": ["Arequipa"],
+  "La Libertad": ["Trujillo"],
+  "Piura": ["Piura"]
+};
+
+const PROVINCIA_DISTRITO_MAP: Record<string, string[]> = {
+  "Lima": ["El Agustino", "San Isidro", "Miraflores", "San Juan de Lurigancho", "Villa María del Triunfo", "Lurín", "Otro"],
+  "Cusco": ["Cusco", "San Sebastián", "Wanchaq", "Otro"],
+  "Arequipa": ["Arequipa", "Cayma", "Yanahuara", "Otro"],
+  "Trujillo": ["Trujillo", "Víctor Larco Herrera", "El Porvenir", "Otro"],
+  "Piura": ["Piura", "Castilla", "Catacaos", "Otro"]
+};
+
 function generateNextFamilyCode(existingRecords: any[]): string {
   const activeFamilyCodes = new Set<string>();
   existingRecords.forEach(r => {
@@ -1905,6 +1921,299 @@ export default function App() {
                               </p>
                             )}
                           </div>
+                        </div>
+
+                        {/* ROW 4: UBICACIÓN GEOGRÁFICA */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-5 pt-3 border-t border-slate-100 mt-4">
+                          {/* País */}
+                          <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">País <span className="text-red-500">*</span></label>
+                            <select
+                              value={(formState.padresTutores.apoderado.pais || 'Perú') === 'Perú' ? 'Perú' : 'Otro'}
+                              onChange={(e) => {
+                                const newPais = e.target.value;
+                                setFormState(prev => {
+                                  const updatedApoderado = {
+                                    ...prev.padresTutores.apoderado,
+                                    pais: newPais
+                                  };
+                                  if (newPais === 'Perú') {
+                                    updatedApoderado.departamento = 'Lima';
+                                    updatedApoderado.provincia = 'Lima';
+                                    updatedApoderado.distrito = 'El Agustino';
+                                  } else {
+                                    updatedApoderado.departamento = '';
+                                    updatedApoderado.provincia = '';
+                                    updatedApoderado.distrito = '';
+                                  }
+                                  return {
+                                    ...prev,
+                                    padresTutores: {
+                                      ...prev.padresTutores,
+                                      apoderado: updatedApoderado
+                                    }
+                                  };
+                                });
+                                clearFieldError('apoderado_pais');
+                                clearFieldError('apoderado_departamento');
+                                clearFieldError('apoderado_provincia');
+                                clearFieldError('apoderado_distrito');
+                              }}
+                              className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                errors.apoderado_pais ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                              }`}
+                            >
+                              <option value="Perú">Perú</option>
+                              <option value="Otro">Otro</option>
+                            </select>
+                            {errors.apoderado_pais && (
+                              <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                {errors.apoderado_pais}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Conditional Inputs */}
+                          {(formState.padresTutores.apoderado.pais || 'Perú') === 'Perú' ? (
+                            <>
+                              {/* Departamento */}
+                              <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Departamento <span className="text-red-500">*</span></label>
+                                <select
+                                  value={formState.padresTutores.apoderado.departamento || 'Lima'}
+                                  onChange={(e) => {
+                                    const newDept = e.target.value;
+                                    const provList = DEPARTAMENTO_PROVINCIA_MAP[newDept] || [];
+                                    const defaultProv = provList[0] || '';
+                                    const distList = PROVINCIA_DISTRITO_MAP[defaultProv] || [];
+                                    const defaultDist = distList[0] || '';
+
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      padresTutores: {
+                                        ...prev.padresTutores,
+                                        apoderado: {
+                                          ...prev.padresTutores.apoderado,
+                                          departamento: newDept,
+                                          provincia: defaultProv,
+                                          distrito: defaultDist
+                                        }
+                                      }
+                                    }));
+                                    clearFieldError('apoderado_departamento');
+                                    clearFieldError('apoderado_provincia');
+                                    clearFieldError('apoderado_distrito');
+                                  }}
+                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                    errors.apoderado_departamento ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                  }`}
+                                >
+                                  {Object.keys(DEPARTAMENTO_PROVINCIA_MAP).map(dep => (
+                                    <option key={dep} value={dep}>{dep}</option>
+                                  ))}
+                                </select>
+                                {errors.apoderado_departamento && (
+                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.apoderado_departamento}
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Provincia */}
+                              <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Provincia <span className="text-red-500">*</span></label>
+                                <select
+                                  value={formState.padresTutores.apoderado.provincia || 'Lima'}
+                                  onChange={(e) => {
+                                    const newProv = e.target.value;
+                                    const distList = PROVINCIA_DISTRITO_MAP[newProv] || [];
+                                    const defaultDist = distList[0] || '';
+
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      padresTutores: {
+                                        ...prev.padresTutores,
+                                        apoderado: {
+                                          ...prev.padresTutores.apoderado,
+                                          provincia: newProv,
+                                          distrito: defaultDist
+                                        }
+                                      }
+                                    }));
+                                    clearFieldError('apoderado_provincia');
+                                    clearFieldError('apoderado_distrito');
+                                  }}
+                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                    errors.apoderado_provincia ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                  }`}
+                                >
+                                  {(DEPARTAMENTO_PROVINCIA_MAP[formState.padresTutores.apoderado.departamento || 'Lima'] || []).map(prov => (
+                                    <option key={prov} value={prov}>{prov}</option>
+                                  ))}
+                                </select>
+                                {errors.apoderado_provincia && (
+                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.apoderado_provincia}
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Distrito */}
+                              <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Distrito <span className="text-red-500">*</span></label>
+                                <select
+                                  value={formState.padresTutores.apoderado.distrito || 'El Agustino'}
+                                  onChange={(e) => {
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      padresTutores: {
+                                        ...prev.padresTutores,
+                                        apoderado: {
+                                          ...prev.padresTutores.apoderado,
+                                          distrito: e.target.value
+                                        }
+                                      }
+                                    }));
+                                    clearFieldError('apoderado_distrito');
+                                  }}
+                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                    errors.apoderado_distrito ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                  }`}
+                                >
+                                  {(PROVINCIA_DISTRITO_MAP[formState.padresTutores.apoderado.provincia || 'Lima'] || []).map(dst => (
+                                    <option key={dst} value={dst}>{dst}</option>
+                                  ))}
+                                </select>
+                                {errors.apoderado_distrito && (
+                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.apoderado_distrito}
+                                  </p>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              {/* Custom País Input if needed or let them type it */}
+                              <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Escriba el País <span className="text-red-500">*</span></label>
+                                <input
+                                  type="text"
+                                  value={formState.padresTutores.apoderado.pais === 'Otro' ? '' : (formState.padresTutores.apoderado.pais || '')}
+                                  onChange={(e) => {
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      padresTutores: {
+                                        ...prev.padresTutores,
+                                        apoderado: { ...prev.padresTutores.apoderado, pais: e.target.value }
+                                      }
+                                    }));
+                                    clearFieldError('apoderado_pais');
+                                  }}
+                                  placeholder="Ej. Chile"
+                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                    errors.apoderado_pais ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                  }`}
+                                />
+                                {errors.apoderado_pais && (
+                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.apoderado_pais}
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Departamento Text Input */}
+                              <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Departamento / Estado <span className="text-red-500">*</span></label>
+                                <input
+                                  type="text"
+                                  value={formState.padresTutores.apoderado.departamento || ''}
+                                  onChange={(e) => {
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      padresTutores: {
+                                        ...prev.padresTutores,
+                                        apoderado: { ...prev.padresTutores.apoderado, departamento: e.target.value }
+                                      }
+                                    }));
+                                    clearFieldError('apoderado_departamento');
+                                  }}
+                                  placeholder="Ej. Santiago"
+                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                    errors.apoderado_departamento ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                  }`}
+                                />
+                                {errors.apoderado_departamento && (
+                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.apoderado_departamento}
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Provincia Text Input */}
+                              <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Provincia <span className="text-red-500">*</span></label>
+                                <input
+                                  type="text"
+                                  value={formState.padresTutores.apoderado.provincia || ''}
+                                  onChange={(e) => {
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      padresTutores: {
+                                        ...prev.padresTutores,
+                                        apoderado: { ...prev.padresTutores.apoderado, provincia: e.target.value }
+                                      }
+                                    }));
+                                    clearFieldError('apoderado_provincia');
+                                  }}
+                                  placeholder="Ej. Santiago"
+                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                    errors.apoderado_provincia ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                  }`}
+                                />
+                                {errors.apoderado_provincia && (
+                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.apoderado_provincia}
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Distrito Text Input */}
+                              <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Distrito / Comuna <span className="text-red-500">*</span></label>
+                                <input
+                                  type="text"
+                                  value={formState.padresTutores.apoderado.distrito || ''}
+                                  onChange={(e) => {
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      padresTutores: {
+                                        ...prev.padresTutores,
+                                        apoderado: { ...prev.padresTutores.apoderado, distrito: e.target.value }
+                                      }
+                                    }));
+                                    clearFieldError('apoderado_distrito');
+                                  }}
+                                  placeholder="Ej. Providencia"
+                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                    errors.apoderado_distrito ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                  }`}
+                                />
+                                {errors.apoderado_distrito && (
+                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.apoderado_distrito}
+                                  </p>
+                                )}
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
