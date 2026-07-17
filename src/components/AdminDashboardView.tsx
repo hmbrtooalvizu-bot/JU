@@ -31,11 +31,13 @@ import {
   GripVertical,
   Menu,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Building2
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { AdmissionRecord, AuditLogEntry } from '../utils/seedData';
 import UsersManagementView from './UsersManagementView';
+import ApplicantDossierModal from './ApplicantDossierModal';
 import { 
   DISTRITOS, 
   SEDES_POR_DISTRITO, 
@@ -182,6 +184,9 @@ export default function AdminDashboardView({
   // Navigation tabs within Admin Dashboard
   const [activeTab, setActiveTab] = useState<'applicants' | 'appointments' | 'users' | 'branches_districts' | 'reports' | 'admission_fee_config'>('applicants');
 
+  // Selected sedes filter for Super Admin in Reports
+  const [selectedSedesFilter, setSelectedSedesFilter] = useState<string[]>([]);
+
   // Visible metrics customization states
   const [isCustomizingDashboard, setIsCustomizingDashboard] = useState(false);
   const [visibleMetrics, setVisibleMetrics] = useState<Record<string, boolean>>(() => {
@@ -195,20 +200,13 @@ export default function AdminDashboardView({
     return {
       total_applicants: true,
       pending_approval: true,
-      ready_for_completion: true,
-      documents_pending: true,
-      documents_submitted: true,
-      documents_verified: true,
+      documents_pending_review: true,
       payments_pending: true,
-      payments_approved: true,
-      appointments_scheduled: true,
-      appointments_completed: true,
-      academic_scheduled: true,
-      academic_completed: true,
+      appointments_pending: true,
+      academic_pending: true,
       admitted: true,
       enrolled: true,
       waiting_list: true,
-      observed: true,
       vacancies_available: true,
       vacancies_occupied: true,
       admission_revenue: true,
@@ -230,20 +228,13 @@ export default function AdminDashboardView({
     return [
       'total_applicants',
       'pending_approval',
-      'ready_for_completion',
-      'documents_pending',
-      'documents_submitted',
-      'documents_verified',
+      'documents_pending_review',
       'payments_pending',
-      'payments_approved',
-      'appointments_scheduled',
-      'appointments_completed',
-      'academic_scheduled',
-      'academic_completed',
+      'appointments_pending',
+      'academic_pending',
       'admitted',
       'enrolled',
       'waiting_list',
-      'observed',
       'vacancies_available',
       'vacancies_occupied',
       'admission_revenue'
@@ -405,9 +396,45 @@ export default function AdminDashboardView({
   const [activeInputStage, setActiveInputStage] = useState<string | null>(null);
   const [inputType, setInputType] = useState<'observation' | 'rejection' | null>(null);
   const [reasonText, setReasonText] = useState('');
+  const [conversionCriterion, setConversionCriterion] = useState<'postulantes' | 'vacantes'>('postulantes');
 
   // Super Administrador check
   const isSuperAdmin = currentUser?.roleAdmin === 'Super Administrador' || currentUser?.id === 'ADMIN-MASTER' || currentUser?.username === 'admin';
+
+  // Sync selectedSedesFilter on mount or when allSedes changes
+  useEffect(() => {
+    if (allSedes.length > 0) {
+      if (isSuperAdmin) {
+        setSelectedSedesFilter(allSedes);
+      } else {
+        setSelectedSedesFilter(hasAllSedes ? allSedes : allowedSedes);
+      }
+    }
+  }, [allSedes, isSuperAdmin, hasAllSedes, allowedSedes]);
+
+  const recordsFilteredBySelectedSedes = React.useMemo(() => {
+    if (selectedSedesFilter.length === 0) return filteredRecordsBySede;
+    return filteredRecordsBySede.filter(r => {
+      const sede = r.formState?.postulacion?.sedeLocal;
+      return sede && selectedSedesFilter.includes(sede);
+    });
+  }, [filteredRecordsBySede, selectedSedesFilter]);
+
+  const handleToggleSedeFilter = (sede: string) => {
+    setSelectedSedesFilter(prev => {
+      if (prev.includes(sede)) {
+        // If it is the last one, keep it or toggle it out. Let's allow toggling but if empty, it would show no records.
+        // Let's keep at least one selected to prevent empty screen or let them have empty if they wish
+        return prev.filter(s => s !== sede);
+      } else {
+        return [...prev, sede];
+      }
+    });
+  };
+
+  const handleSelectAllSedesFilter = () => {
+    setSelectedSedesFilter(allSedes);
+  };
 
   // Menu order state for reorderable sidebar modules
   const [menuOrder, setMenuOrder] = useState<string[]>(() => {
@@ -803,6 +830,8 @@ export default function AdminDashboardView({
   const [isChangingStatus, setIsChangingStatus] = useState(false);
   const [tempStatus, setTempStatus] = useState<string>('');
   const [activeFamilyTab, setActiveFamilyTab] = useState<'apoderado' | 'mama' | 'papa' | 'ficha'>('apoderado');
+  const [activeApplicantTab, setActiveApplicantTab] = useState<string>('general');
+  const [expandedDoc, setExpandedDoc] = useState<string | null>('dniPostulante');
 
   // Selected headquarter for capacity & level management in config panel
   const [selectedManageSede, setSelectedManageSede] = useState<string>(() => {
@@ -868,24 +897,113 @@ export default function AdminDashboardView({
     return defaults;
   });
 
+  const [sedeInfrastructure, setSedeInfrastructure] = useState<Record<string, Record<string, { salones: number; capacidad: number }>>>(() => {
+    const stored = localStorage.getItem('jc_sede_infrastructure');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        const normalized: Record<string, Record<string, { salones: number; capacidad: number }>> = {};
+        Object.keys(parsed).forEach(s => {
+          normalized[s] = {};
+          const oldToNew: Record<string, string> = {
+            "Primaria 1er Grado": "Primaria 1ro",
+            "Primaria 2do Grado": "Primaria 2do",
+            "Primaria 3er Grado": "Primaria 3ro",
+            "Primaria 4to Grado": "Primaria 4to",
+            "Primaria 5to Grado": "Primaria 5to",
+            "Primaria 6to Grado": "Primaria 6to",
+            "Secundaria 1er Año": "Secundaria 1ro",
+            "Secundaria 2do Año": "Secundaria 2do",
+            "Secundaria 3er Año": "Secundaria 3ro",
+            "Secundaria 4to Año": "Secundaria 4to",
+            "Secundaria 5to Año": "Secundaria 5to"
+          };
+          Object.entries(parsed[s]).forEach(([k, v]) => {
+            const newKey = oldToNew[k] || k;
+            normalized[s][newKey] = v as any;
+          });
+        });
+        return normalized;
+      } catch (e) {}
+    }
+    const initial: Record<string, Record<string, { salones: number; capacidad: number }>> = {};
+    const allSedesList = Object.values(SEDES_POR_DISTRITO).flat();
+    allSedesList.forEach(s => {
+      initial[s] = {
+        "Guardería (desde 18 meses)": { salones: 1, capacidad: 15 },
+        "Inicial 3 años": { salones: 2, capacidad: 20 },
+        "Inicial 4 años": { salones: 2, capacidad: 20 },
+        "Inicial 5 años": { salones: 3, capacidad: 25 },
+        "Primaria 1ro": { salones: 4, capacidad: 25 },
+        "Primaria 2do": { salones: 3, capacidad: 25 },
+        "Primaria 3ro": { salones: 3, capacidad: 25 },
+        "Primaria 4to": { salones: 3, capacidad: 25 },
+        "Primaria 5to": { salones: 3, capacidad: 25 },
+        "Primaria 6to": { salones: 3, capacidad: 25 },
+        "Secundaria 1ro": { salones: 4, capacidad: 30 },
+        "Secundaria 2do": { salones: 4, capacidad: 30 },
+        "Secundaria 3ro": { salones: 4, capacidad: 30 },
+        "Secundaria 4to": { salones: 4, capacidad: 30 },
+        "Secundaria 5to": { salones: 4, capacidad: 30 },
+        "Preuniversitario": { salones: 2, capacidad: 35 }
+      };
+    });
+    return initial;
+  });
+
+  const getSedeTotalCapacity = React.useCallback((sedeName: string): number => {
+    const allowedLevels = sedeLevels[sedeName] || [];
+    const infra = sedeInfrastructure[sedeName] || {};
+    return GRADOS_INGRESO.reduce((sum, grade) => {
+      if (!allowedLevels.includes(grade.nivel)) return sum;
+      const config = infra[grade.value] || { salones: 2, capacidad: 25 };
+      return sum + (config.salones * config.capacidad);
+    }, 0);
+  }, [sedeInfrastructure, sedeLevels]);
+
+  useEffect(() => {
+    const nextCapacities: Record<string, number> = {};
+    const allSedesList = Object.values(SEDES_POR_DISTRITO).flat();
+    allSedesList.forEach(s => {
+      nextCapacities[s] = getSedeTotalCapacity(s);
+    });
+    if (JSON.stringify(sedeCapacities) !== JSON.stringify(nextCapacities)) {
+      setSedeCapacities(nextCapacities);
+    }
+  }, [sedeInfrastructure, sedeLevels, getSedeTotalCapacity, sedeCapacities]);
+
+  const handleUpdateInfrastructure = (sede: string, gradeKey: string, field: 'salones' | 'capacidad', value: number) => {
+    setSedeInfrastructure(prev => {
+      const sedeData = prev[sede] || {};
+      const gradeData = sedeData[gradeKey] || { salones: 2, capacidad: 25 };
+      const updatedGrade = { ...gradeData, [field]: Math.max(0, value) };
+      const updatedSede = { ...sedeData, [gradeKey]: updatedGrade };
+      return { ...prev, [sede]: updatedSede };
+    });
+  };
+
   // Save changes to localStorage
   useEffect(() => {
     localStorage.setItem('jc_sede_capacities', JSON.stringify(sedeCapacities));
     window.dispatchEvent(new Event('storage'));
   }, [sedeCapacities]);
 
+  useEffect(() => {
+    localStorage.setItem('jc_sede_infrastructure', JSON.stringify(sedeInfrastructure));
+  }, [sedeInfrastructure]);
+
   const TOTAL_VACANCIES_CAPACITY: number = React.useMemo(() => {
-    return Object.entries(sedeCapacities).reduce((sum: number, [sedeName, cap]: [string, any]): number => {
-      if (hasAllSedes || allowedSedes.includes(sedeName)) {
-        return sum + (cap as number);
+    return Object.keys(sedeInfrastructure).reduce((sum, s) => {
+      if (selectedSedesFilter.includes(s)) {
+        return sum + getSedeTotalCapacity(s);
       }
       return sum;
     }, 0);
-  }, [sedeCapacities, hasAllSedes, allowedSedes]);
+  }, [sedeInfrastructure, selectedSedesFilter, getSedeTotalCapacity]);
 
   // Filter Active (non-deleted) records vs Soft deleted ones
-  const activeRecords = filteredRecordsBySede.filter(r => !r.isDeleted);
-  const deletedRecords = filteredRecordsBySede.filter(r => r.isDeleted);
+  const activeRecords = recordsFilteredBySelectedSedes.filter(r => !r.isDeleted);
+  const deletedRecords = recordsFilteredBySelectedSedes.filter(r => r.isDeleted);
 
   // Compute metrics
   const countTotalApplicants = activeRecords.length;
@@ -915,7 +1033,7 @@ export default function AdminDashboardView({
     },
     {
       key: 'pending_approval',
-      label: 'Preinscripciones Pendientes',
+      label: 'Expedientes Pendientes',
       desc: 'Espera de Aprobación',
       colorClass: 'bg-amber-50 text-amber-700 border-amber-100',
       icon: Clock,
@@ -923,40 +1041,13 @@ export default function AdminDashboardView({
       getValue: () => activeRecords.filter(r => r.status === 'pending_approval').length,
     },
     {
-      key: 'ready_for_completion',
-      label: 'Pendientes de Completar Ficha',
-      desc: 'Sin Ficha Técnica',
-      colorClass: 'bg-indigo-50 text-indigo-700 border-indigo-100',
-      icon: Pencil,
-      isIncome: false,
-      getValue: () => activeRecords.filter(r => r.status === 'ready_for_completion').length,
-    },
-    {
-      key: 'documents_pending',
-      label: 'Pendientes de Documentos',
-      desc: 'Falta Adjuntar Doc.',
+      key: 'documents_pending_review',
+      label: 'Documentos Pendientes de Revisión',
+      desc: 'Expedientes por Validar',
       colorClass: 'bg-rose-50 text-rose-700 border-rose-100',
       icon: AlertCircle,
       isIncome: false,
-      getValue: () => activeRecords.filter(r => r.status === 'documents_pending').length,
-    },
-    {
-      key: 'documents_submitted',
-      label: 'Documentos Recibidos',
-      desc: 'Por Validar/Verificar',
-      colorClass: 'bg-sky-50 text-sky-700 border-sky-100',
-      icon: FileText,
-      isIncome: false,
       getValue: () => activeRecords.filter(r => r.status === 'documents_submitted').length,
-    },
-    {
-      key: 'documents_verified',
-      label: 'Documentos Verificados',
-      desc: 'Doc. Verificados',
-      colorClass: 'bg-teal-50 text-teal-700 border-teal-100',
-      icon: FileCheck2,
-      isIncome: false,
-      getValue: () => activeRecords.filter(r => r.status === 'documents_verified').length,
     },
     {
       key: 'payments_pending',
@@ -968,49 +1059,22 @@ export default function AdminDashboardView({
       getValue: () => activeRecords.filter(r => r.paymentState === 'pending').length,
     },
     {
-      key: 'payments_approved',
-      label: 'Pagos Aprobados',
-      desc: 'Abonos Confirmados',
-      colorClass: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-      icon: Check,
-      isIncome: true,
-      getValue: () => activeRecords.filter(r => r.paymentState === 'paid').length,
-    },
-    {
-      key: 'appointments_scheduled',
-      label: 'Citas Psicopedagógicas Programadas',
-      desc: 'Citas Agendadas',
+      key: 'appointments_pending',
+      label: 'Citas Psicopedagógicas Pendientes',
+      desc: 'Citas por Evaluar o Agendar',
       colorClass: 'bg-violet-50 text-violet-700 border-violet-100',
       icon: Calendar,
       isIncome: false,
-      getValue: () => activeRecords.filter(r => !!r.appointment).length,
+      getValue: () => activeRecords.filter(r => r.status === 'interview_scheduled' || (!!r.appointment && !r.appointmentApproved)).length,
     },
     {
-      key: 'appointments_completed',
-      label: 'Citas Psicopedagógicas Realizadas',
-      desc: 'Entrevistas Evaluadas',
-      colorClass: 'bg-green-50 text-green-700 border-green-100',
-      icon: UserCheck,
-      isIncome: false,
-      getValue: () => activeRecords.filter(r => r.appointmentApproved).length,
-    },
-    {
-      key: 'academic_scheduled',
-      label: 'Evaluaciones Académicas Programadas',
-      desc: 'Conocimientos Agendados',
+      key: 'academic_pending',
+      label: 'Evaluaciones Académicas Pendientes',
+      desc: 'Exámenes por Concluir',
       colorClass: 'bg-purple-50 text-purple-700 border-purple-100',
       icon: School,
       isIncome: false,
-      getValue: () => activeRecords.filter(r => !!r.academicEvaluation).length,
-    },
-    {
-      key: 'academic_completed',
-      label: 'Evaluaciones Académicas Realizadas',
-      desc: 'Exámenes Concluidos',
-      colorClass: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-100',
-      icon: Award,
-      isIncome: false,
-      getValue: () => activeRecords.filter(r => r.academicEvaluationApproved).length,
+      getValue: () => activeRecords.filter(r => !!r.academicEvaluation && !r.academicEvaluationApproved).length,
     },
     {
       key: 'admitted',
@@ -1025,7 +1089,7 @@ export default function AdminDashboardView({
       key: 'enrolled',
       label: 'Matriculados',
       desc: 'Matrícula Completa',
-      colorClass: 'bg-blue-50 text-blue-850 border-blue-100',
+      colorClass: 'bg-sky-50 text-sky-700 border-sky-150',
       icon: UserCheck,
       isIncome: false,
       getValue: () => countEnrolled,
@@ -1038,15 +1102,6 @@ export default function AdminDashboardView({
       icon: Clock,
       isIncome: false,
       getValue: () => countWaitingList,
-    },
-    {
-      key: 'observed',
-      label: 'Observados',
-      desc: 'Con Errores Detectados',
-      colorClass: 'bg-red-50 text-red-700 border-red-100',
-      icon: AlertTriangle,
-      isIncome: false,
-      getValue: () => countObserved,
     },
     {
       key: 'vacancies_available',
@@ -1081,10 +1136,8 @@ export default function AdminDashboardView({
     countTotalApplicants,
     countEnrolled,
     countPaid,
-    countAppointments,
     totalRevenue,
     countWaitingList,
-    countObserved,
     remainingVacancies
   ]);
 
@@ -2078,6 +2131,64 @@ export default function AdminDashboardView({
             </div>
           )}
 
+          {/* Filtro Global de Sedes (Super Administrador) */}
+          {isSuperAdmin && activeTab === 'reports' && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-3xl p-6 shadow-xs border border-slate-200 space-y-4"
+            >
+              <div className="flex items-center justify-between border-b pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-blue-50 text-blue-950 rounded-lg">
+                    <Filter className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black uppercase text-slate-800 tracking-wider">Filtro Global de Sedes</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Filtre y actualice toda la información del dashboard en tiempo real.</p>
+                  </div>
+                </div>
+                <span className="text-[9px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Solo Super Administrador
+                </span>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleSelectAllSedesFilter}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 flex items-center gap-2 border cursor-pointer ${
+                    selectedSedesFilter.length === allSedes.length
+                      ? 'bg-blue-900 text-white border-blue-900 shadow-xs'
+                      : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                  }`}
+                >
+                  <Check className="w-3.5 h-3.5 shrink-0" />
+                  Todas las sedes
+                </button>
+
+                {allSedes.map(sede => {
+                  const isSelected = selectedSedesFilter.includes(sede);
+                  return (
+                    <button
+                      key={sede}
+                      type="button"
+                      onClick={() => handleToggleSedeFilter(sede)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all duration-200 flex items-center gap-2 border cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-50 text-blue-900 border-blue-200 shadow-2xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${isSelected ? 'bg-blue-600 animate-pulse' : 'bg-slate-300'}`} />
+                      {sede}
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+
           {/* Main Dashboard Indicators Section */}
           {hasPermission('Ver estadísticas') && activeTab === 'reports' && (
             <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4 transition-all duration-300">
@@ -2564,59 +2675,167 @@ export default function AdminDashboardView({
                 </div>
               </div>
 
-              {/* Sede & Distrito Distribution Reports */}
+              {/* Porcentaje de Ocupación por Sede */}
               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
                 <div className="flex items-center justify-between border-b pb-3">
-                  <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
-                    Demografía y Geolocalización (Distritos)
-                  </h4>
-                  <span className="text-[10px] bg-amber-50 text-amber-800 font-bold px-2.5 py-0.5 rounded-full">
-                    Sedes Activas
+                  <div className="flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-emerald-600" />
+                    <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                      Porcentaje de Ocupación por Sede
+                    </h4>
+                  </div>
+                  <span className="text-[10px] bg-emerald-50 text-emerald-800 font-extrabold px-2.5 py-0.5 rounded-full">
+                    Avance de Matrícula
                   </span>
                 </div>
 
-                <div className="space-y-4">
-                  {/* Sede Local cards with details (Scrollable list of all sedes) */}
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ocupación de Vacantes por Sede</span>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[160px] overflow-y-auto pr-1">
-                    {Object.keys(sedeCapacities).map(sede => {
-                      const countPost = activeRecords.filter(r => r.formState.postulacion.sedeLocal === sede).length;
-                      const countMat = activeRecords.filter(r => r.formState.postulacion.sedeLocal === sede && r.status === 'enrolled').length;
-                      const limit = sedeCapacities[sede] || 50;
-                      return (
-                        <div key={sede} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-1 hover:shadow-2xs transition">
-                          <span className="block text-[10px] text-slate-600 font-black uppercase tracking-wider truncate" title={sede}>{sede}</span>
-                          <strong className="block text-sm font-black text-slate-900">{countPost} <span className="text-[9px] text-slate-400 font-normal">post.</span></strong>
-                          <span className="text-[8px] bg-green-50 text-green-800 px-1.5 py-0.5 rounded-full font-bold border border-green-100 inline-block">
-                            {countMat} / {limit} Mat.
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
+                  {selectedSedesFilter.map(sede => {
+                    const countMat = activeRecords.filter(r => r.formState.postulacion.sedeLocal === sede && r.status === 'enrolled').length;
+                    const aforo = getSedeTotalCapacity(sede);
+                    const percentage = aforo > 0 ? (countMat / aforo) * 100 : 0;
+                    
+                    let barColor = 'bg-blue-600';
+                    let badgeColor = 'bg-blue-50 text-blue-700';
+                    if (percentage >= 90) {
+                      barColor = 'bg-emerald-600';
+                      badgeColor = 'bg-emerald-50 text-emerald-700';
+                    } else if (percentage < 30) {
+                      barColor = 'bg-rose-500';
+                      badgeColor = 'bg-rose-50 text-rose-700';
+                    } else if (percentage < 70) {
+                      barColor = 'bg-amber-500';
+                      badgeColor = 'bg-amber-50 text-amber-700';
+                    }
 
-                  {/* District table */}
-                  <div className="space-y-2 pt-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Procedencia por Distritos</span>
-                    <div className="border border-slate-150 rounded-xl overflow-hidden text-xs">
-                      <div className="grid grid-cols-3 bg-slate-50 p-2.5 font-bold text-slate-600 border-b">
-                        <span>Distrito</span>
-                        <span className="text-center">Postulantes</span>
-                        <span className="text-right">Porcentaje</span>
-                      </div>
-                      {DISTRITOS.map(dist => {
-                        const countD = activeRecords.filter(r => r.formState.postulacion.distritoPostulacion === dist || r.formState.fichaFamilia?.distrito === dist).length;
-                        const pctD = countTotalApplicants > 0 ? ((countD / countTotalApplicants) * 100).toFixed(1) : '0.0';
-                        return (
-                          <div key={dist} className="grid grid-cols-3 p-2 border-b last:border-b-0 hover:bg-slate-50">
-                            <span className="font-semibold text-slate-700">{dist}</span>
-                            <span className="text-center font-bold text-slate-900">{countD}</span>
-                            <span className="text-right font-mono text-slate-500">{pctD}%</span>
+                    return (
+                      <div key={sede} className="space-y-2 p-3 bg-slate-50/50 rounded-2xl border border-slate-150">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-extrabold text-slate-800 uppercase tracking-tight">{sede}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-500">{countMat} / {aforo} alumnos</span>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${badgeColor}`}>
+                              {percentage.toFixed(1)}%
+                            </span>
                           </div>
-                        );
-                      })}
+                        </div>
+
+                        <div className="w-full bg-slate-200/75 rounded-full h-2.5 overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.min(100, percentage)}%` }}
+                            transition={{ duration: 0.6 }}
+                            className={`${barColor} h-full rounded-full`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Ocupación y Conversión por Distrito (Full Width) */}
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 lg:col-span-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-3 gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-indigo-600" />
+                    <div>
+                      <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                        Ocupación y Conversión por Distrito
+                      </h4>
+                      <p className="text-[11px] text-slate-400">Análisis estratégico de procedencia geográfica de alumnos y conversión comercial.</p>
                     </div>
                   </div>
+
+                  {/* Criteria Toggle */}
+                  <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => setConversionCriterion('postulantes')}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all cursor-pointer ${
+                        conversionCriterion === 'postulantes'
+                          ? 'bg-white text-slate-800 shadow-2xs'
+                          : 'text-slate-400 hover:text-slate-600'
+                      }`}
+                    >
+                      Efectividad (Mat. / Post.)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConversionCriterion('vacantes')}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all cursor-pointer ${
+                        conversionCriterion === 'vacantes'
+                          ? 'bg-white text-slate-800 shadow-2xs'
+                          : 'text-slate-400 hover:text-slate-600'
+                      }`}
+                    >
+                      Ocupación (Mat. / Capacidad)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto border border-slate-150 rounded-2xl">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-150 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                        <th className="py-3 px-4">Distrito</th>
+                        <th className="py-3 px-4">Sede correspondiente</th>
+                        <th className="py-3 px-4 text-center">Total Postulantes</th>
+                        <th className="py-3 px-4 text-center">Total Matriculados</th>
+                        <th className="py-3 px-4 text-center">Vacantes Disponibles</th>
+                        <th className="py-3 px-4 text-right">
+                          {conversionCriterion === 'postulantes' ? 'Efectividad Conversión' : 'Porcentaje Ocupación'}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+                      {dynamicDistritos.map(dist => {
+                        const totalPost = activeRecords.filter(r => r.formState.postulacion.distritoPostulacion === dist).length;
+                        const totalMat = activeRecords.filter(r => r.formState.postulacion.distritoPostulacion === dist && r.status === 'enrolled').length;
+                        
+                        const sedesOfDist = dynamicSedesMap[dist] || [];
+                        const totalCapacity = sedesOfDist.reduce((sum, s) => sum + getSedeTotalCapacity(s), 0);
+                        const totalEnrolledSedesOfDist = activeRecords.filter(r => sedesOfDist.includes(r.formState.postulacion.sedeLocal) && r.status === 'enrolled').length;
+                        const vacantesDisponibles = Math.max(0, totalCapacity - totalEnrolledSedesOfDist);
+
+                        const percentage = conversionCriterion === 'postulantes'
+                          ? (totalPost > 0 ? (totalMat / totalPost) * 100 : 0)
+                          : (totalCapacity > 0 ? (totalMat / totalCapacity) * 100 : 0);
+
+                        return (
+                          <tr key={dist} className="hover:bg-slate-50/50 transition border-b border-slate-100 last:border-0">
+                            <td className="py-3 px-4 font-black text-slate-900 uppercase">{dist}</td>
+                            <td className="py-3 px-4">
+                              <div className="flex flex-wrap gap-1 max-w-[220px]">
+                                {sedesOfDist.length === 0 ? (
+                                  <span className="text-slate-400 italic text-[10px]">Ninguna sede</span>
+                                ) : (
+                                  sedesOfDist.map(s => (
+                                    <span key={s} className="bg-slate-100 text-slate-600 text-[9px] font-bold px-1.5 py-0.5 rounded-md border border-slate-200">
+                                      {s}
+                                    </span>
+                                  ))
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-center font-bold text-slate-900">{totalPost}</td>
+                            <td className="py-3 px-4 text-center font-bold text-emerald-700">{totalMat}</td>
+                            <td className="py-3 px-4 text-center font-mono text-indigo-700 font-bold">{vacantesDisponibles}</td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <div className="w-16 bg-slate-100 rounded-full h-1.5 hidden sm:block overflow-hidden">
+                                  <div className="bg-indigo-600 h-full rounded-full" style={{ width: `${Math.min(100, percentage)}%` }} />
+                                </div>
+                                <span className="font-mono font-black text-slate-900 bg-indigo-50 text-indigo-800 px-2 py-0.5 rounded-md border border-indigo-100">
+                                  {percentage.toFixed(1)}%
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
@@ -2682,7 +2901,7 @@ export default function AdminDashboardView({
                       <div className="flex justify-between border-t pt-1.5 mt-1">
                         <span className="text-slate-500 font-semibold">Aforo Configurado:</span>
                         <strong className="text-blue-900 font-black">
-                          {sedeCapacities[selectedManageSede] || 50} vacantes
+                          {getSedeTotalCapacity(selectedManageSede)} vacantes
                         </strong>
                       </div>
                     </div>
@@ -2692,60 +2911,23 @@ export default function AdminDashboardView({
                   <div className="space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-200">
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                        2. Modificar Aforo (Límite Vacantes):
+                        2. Aforo Total Calculado:
                       </label>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        Incremente o reduzca el cupo total autorizado para admisiones.
+                        Suma total de vacantes de todos los grados autorizados en esta sede (Sección 5).
                       </p>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2.5 mt-2">
-                      <div className="flex flex-col gap-1.5">
-                        <button
-                          onClick={() => handleUpdateSedeCapacity(selectedManageSede, -5)}
-                          className="px-2 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-extrabold rounded-lg border border-slate-200 transition text-[10px] shadow-2xs cursor-pointer"
-                        >
-                          -5
-                        </button>
-                        <button
-                          onClick={() => handleUpdateSedeCapacity(selectedManageSede, -1)}
-                          className="px-2 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-extrabold rounded-lg border border-slate-200 transition text-[10px] shadow-2xs cursor-pointer"
-                        >
-                          -1
-                        </button>
-                      </div>
-
-                      <div className="text-center flex-1 bg-white border border-slate-300 rounded-2xl p-2 shadow-inner">
-                        <span className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider">Límite</span>
-                        <input
-                          type="number"
-                          value={sedeCapacities[selectedManageSede] || 50}
-                          onChange={(e) => handleSetSedeCapacityDirect(selectedManageSede, parseInt(e.target.value) || 1)}
-                          className="w-full text-center font-black text-xl text-slate-900 focus:outline-hidden"
-                          min="1"
-                          max="500"
-                        />
-                        <span className="block text-[8px] font-extrabold text-blue-900">Vacantes</span>
-                      </div>
-
-                      <div className="flex flex-col gap-1.5">
-                        <button
-                          onClick={() => handleUpdateSedeCapacity(selectedManageSede, 1)}
-                          className="px-2 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-extrabold rounded-lg border border-slate-200 transition text-[10px] shadow-2xs cursor-pointer"
-                        >
-                          +1
-                        </button>
-                        <button
-                          onClick={() => handleUpdateSedeCapacity(selectedManageSede, 5)}
-                          className="px-2 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-extrabold rounded-lg border border-slate-200 transition text-[10px] shadow-2xs cursor-pointer"
-                        >
-                          +5
-                        </button>
-                      </div>
+                    <div className="text-center bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                      <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Capacidad Total</span>
+                      <span className="block font-black text-3xl text-slate-900 mt-1">
+                        {getSedeTotalCapacity(selectedManageSede)}
+                      </span>
+                      <span className="block text-[9px] font-extrabold text-blue-900 uppercase tracking-wider mt-1">Vacantes Oficiales</span>
                     </div>
 
                     <div className="text-center border-t border-slate-200 pt-2 text-[9px] uppercase font-bold text-slate-400">
-                      Capacidad total estimada para ingresos
+                      Calculado automáticamente
                     </div>
                   </div>
 
@@ -2816,6 +2998,129 @@ export default function AdminDashboardView({
                       <div className="text-[9px] text-blue-500 font-extrabold uppercase tracking-wider text-right">
                         Sincronización en Vivo
                       </div>
+                    </div>
+                  </div>
+
+                  {/* 5. Configuración de Infraestructura Académica y Aulas */}
+                  <div className="md:col-span-4 border-t border-slate-200 pt-6 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-indigo-50 text-indigo-950 rounded-lg">
+                        <School className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h5 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                          5. Configuración de Infraestructura Académica y Aulas (Salones por Grado)
+                        </h5>
+                        <p className="text-[11px] text-slate-400">
+                          Defina la cantidad de salones físicos disponibles por cada grado y la capacidad máxima de alumnos permitida por salón.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {NIVELES_EDUCATIVOS.filter(nivel => (sedeLevels[selectedManageSede] || []).includes(nivel)).length === 0 ? (
+                        <div className="lg:col-span-3 text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-3xl text-xs text-slate-500 font-semibold space-y-2">
+                          <p>No hay niveles educativos habilitados para esta sede.</p>
+                          <p className="text-[10px] text-slate-400">Por favor, autorice al menos un nivel en la Sección 3 de arriba.</p>
+                        </div>
+                      ) : (
+                        NIVELES_EDUCATIVOS.filter(nivel => (sedeLevels[selectedManageSede] || []).includes(nivel)).map(nivel => {
+                          const gradesForNivel = GRADOS_INGRESO.filter(g => g.nivel === nivel);
+                          
+                          const levelColor = 
+                            nivel === 'Guardería y estimulación' ? 'border-rose-100 bg-rose-50/35 text-rose-900' :
+                            nivel === 'Inicial' ? 'border-amber-100 bg-amber-50/35 text-amber-900' : 
+                            nivel === 'Primaria' ? 'border-blue-100 bg-blue-50/35 text-blue-900' : 
+                            nivel === 'Secundaria' ? 'border-purple-100 bg-purple-50/35 text-purple-900' :
+                            'border-emerald-100 bg-emerald-50/35 text-emerald-900';
+
+                          const levelDot = 
+                            nivel === 'Guardería y estimulación' ? 'bg-rose-500' :
+                            nivel === 'Inicial' ? 'bg-amber-500' : 
+                            nivel === 'Primaria' ? 'bg-blue-600' : 
+                            nivel === 'Secundaria' ? 'bg-purple-600' :
+                            'bg-emerald-600';
+
+                          return (
+                            <div key={nivel} className="bg-slate-50/50 rounded-2xl border border-slate-200 p-4 space-y-3">
+                              <div className={`flex items-center justify-between border border-dashed rounded-xl px-3 py-1.5 font-bold text-xs ${levelColor}`}>
+                                <span className="flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full ${levelDot}`} />
+                                  {nivel.toUpperCase()}
+                                </span>
+                                <span className="text-[9px] uppercase tracking-wider font-extrabold opacity-75">Configuración</span>
+                              </div>
+
+                              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+                                {gradesForNivel.map(grade => {
+                                  const gradeKey = grade.value;
+                                  const config = (sedeInfrastructure[selectedManageSede] || {})[gradeKey] || { salones: 2, capacidad: 25 };
+                                  const totalCap = config.salones * config.capacidad;
+
+                                  return (
+                                    <div key={grade.value} className="bg-white rounded-xl border border-slate-150 p-3 space-y-2.5 hover:shadow-2xs transition">
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-xs font-black text-slate-800">{grade.label}</span>
+                                        <span className="text-[10px] bg-indigo-50 text-indigo-700 font-extrabold px-2 py-0.5 rounded-full">
+                                          Total: {totalCap} vac.
+                                        </span>
+                                      </div>
+
+                                      <div className="grid grid-cols-2 gap-2 text-xs">
+                                        {/* Salones */}
+                                        <div className="space-y-1">
+                                          <span className="block text-[9px] font-bold text-slate-400 uppercase">Salones:</span>
+                                          <div className="flex items-center justify-between border border-slate-200 rounded-lg p-1 bg-slate-50/50">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleUpdateInfrastructure(selectedManageSede, gradeKey, 'salones', config.salones - 1)}
+                                              className="w-5 h-5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-black rounded flex items-center justify-center transition cursor-pointer"
+                                            >
+                                              -
+                                            </button>
+                                            <span className="font-extrabold text-slate-800">{config.salones}</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleUpdateInfrastructure(selectedManageSede, gradeKey, 'salones', config.salones + 1)}
+                                              className="w-5 h-5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-black rounded flex items-center justify-center transition cursor-pointer"
+                                            >
+                                              +
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                        {/* Capacidad por Salón */}
+                                        <div className="space-y-1">
+                                          <span className="block text-[9px] font-bold text-slate-400 uppercase">Capacidad:</span>
+                                          <div className="flex items-center justify-between border border-slate-200 rounded-lg p-1 bg-slate-50/50">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleUpdateInfrastructure(selectedManageSede, gradeKey, 'capacidad', config.capacidad - 5)}
+                                              className="w-5 h-5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-black rounded flex items-center justify-center transition cursor-pointer"
+                                              title="Disminuir 5 vacantes"
+                                            >
+                                              -
+                                            </button>
+                                            <span className="font-extrabold text-slate-800">{config.capacidad}</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleUpdateInfrastructure(selectedManageSede, gradeKey, 'capacidad', config.capacidad + 5)}
+                                              className="w-5 h-5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-black rounded flex items-center justify-center transition cursor-pointer"
+                                              title="Aumentar 5 vacantes"
+                                            >
+                                              +
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 </div>
@@ -3089,7 +3394,7 @@ export default function AdminDashboardView({
                                       <div className="space-y-0.5 min-w-0">
                                         <span className="text-xs font-bold text-slate-800 block truncate">{sede}</span>
                                         <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block truncate">
-                                          Capacidad: {sedeCapacities[sede] ?? 120} vacantes
+                                          Capacidad: {getSedeTotalCapacity(sede)} vacantes
                                         </span>
                                       </div>
                                     </div>
@@ -3434,1201 +3739,21 @@ export default function AdminDashboardView({
       </div>
 
       {/* APPLICANT DETAIL & STATE CONTROL MODAL */}
-      <AnimatePresence>
-        {selectedApplicant && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl border border-slate-200 flex flex-col"
-            >
-              {/* Modal header */}
-              <div className="bg-slate-900 text-white p-5 flex justify-between items-center border-b-4 border-amber-500">
-                <div>
-                  <span className="text-xs text-amber-400 font-bold uppercase tracking-wider">Expediente: {selectedApplicant.id}</span>
-                  <h3 className="text-base sm:text-lg font-black uppercase tracking-tight">
-                    {selectedApplicant.formState.personales.apellidoPaterno} {selectedApplicant.formState.personales.apellidoMaterno}, {selectedApplicant.formState.personales.nombres}
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setSelectedApplicant(null)}
-                  className="p-1 text-slate-400 hover:text-white rounded-full transition cursor-pointer"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-
-              {/* Modal scrollable body */}
-              <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs sm:text-sm">
-                {/* 1. Status Section with Change Controls */}
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Estado de Postulación Actual</span>
-                      <span className={`inline-block text-[10px] font-black px-2.5 py-1 rounded-full border mt-1 ${getStatusLabel(selectedApplicant.status).bg}`}>
-                        {getStatusLabel(selectedApplicant.status).text}
-                      </span>
-                    </div>
-
-                    {!isChangingStatus ? (
-                      <button
-                        onClick={() => {
-                          setTempStatus(selectedApplicant.status);
-                          setIsChangingStatus(true);
-                        }}
-                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg text-[10px] transition cursor-pointer"
-                      >
-                        Cambiar Estado
-                      </button>
-                    ) : (
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={handleSaveStatusChange}
-                          className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded-lg text-[10px] transition cursor-pointer"
-                        >
-                          Guardar
-                        </button>
-                        <button
-                          onClick={() => setIsChangingStatus(false)}
-                          className="bg-slate-300 hover:bg-slate-400 text-slate-700 font-bold py-1.5 px-2 rounded-lg text-[10px] transition cursor-pointer"
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {isChangingStatus && (
-                    <div className="space-y-2 pt-2 border-t border-slate-200/60">
-                      <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                        Seleccione el nuevo estado para este postulante:
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { val: 'pending_approval', label: 'Pre-Inscripción Pendiente' },
-                          { val: 'ready_for_completion', label: 'Pte. Completar Ficha' },
-                          { val: 'documents_pending', label: 'Pendiente Documentos' },
-                          { val: 'documents_submitted', label: 'Doc. Recibidos' },
-                          { val: 'documents_verified', label: 'Doc. Verificados' },
-                          { val: 'interview_scheduled', label: 'Cita Psicológica' },
-                          { val: 'interview_completed', label: 'Entrevista Hecha' },
-                          { val: 'admitted', label: 'Admitido (Vacante Reservada)' },
-                          { val: 'enrolled', label: 'Matriculado con Aula' },
-                          { val: 'observed', label: 'Con Observaciones' },
-                          { val: 'waiting_list', label: 'Lista de Espera' }
-                        ].map((opt) => (
-                          <label key={opt.val} className="flex items-center gap-2 p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer text-[11px] font-semibold text-slate-700">
-                            <input
-                              type="radio"
-                              name="modal_status"
-                              value={opt.val}
-                              checked={tempStatus === opt.val}
-                              onChange={() => setTempStatus(opt.val)}
-                              className="text-blue-600 focus:ring-blue-500"
-                            />
-                            <span>{opt.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* 1. Información General */}
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2">
-                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center gap-1.5 border-b pb-1">
-                    <AlertCircle className="w-4 h-4 text-slate-500" />
-                    <span>Información General</span>
-                  </h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Código de Ficha (Expediente)</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.id}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Código de Familia</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.codigoFamilia || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Código del Postulante</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">
-                        {selectedApplicant.formState.postulacion.tipoAlumno === 'antiguo' ? selectedApplicant.formState.postulacion.codigoAntiguo : 'N/A (Alumno Nuevo)'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Año Escolar de Postulación</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.anoProceso || '2027'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Fecha de Registro</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.createdAt || 'No registrada'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Estado de la Postulación</p>
-                      <p className="font-extrabold text-blue-700 mt-0.5 uppercase">{getStatusLabel(selectedApplicant.status).text}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Datos de la Postulación (Paso 1) */}
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2">
-                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center gap-1.5 border-b pb-1">
-                    <Award className="w-4 h-4 text-indigo-500" />
-                    <span>Datos de la Postulación (Paso 1)</span>
-                  </h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nivel Educativo</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.nivelEducativo}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Grado de Ingreso</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.gradoIngreso}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Sede de Postulación</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.sedeLocal}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Distrito de Postulación</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.distritoPostulacion}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Turno de Preferencia</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.turnoPreferencia}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Tipo de Alumno</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">
-                        {selectedApplicant.formState.postulacion.tipoAlumno === 'nuevo' ? 'Alumno Nuevo' : 'Reingresante'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. Datos Personales del Postulante (Paso 3) */}
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-3">
-                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center gap-1.5 border-b pb-1">
-                    <UserCheck className="w-4 h-4 text-emerald-500" />
-                    <span>Datos Personales del Postulante (Paso 3)</span>
-                  </h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nombres</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.nombres}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Apellido Paterno</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.apellidoPaterno}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Apellido Materno</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.apellidoMaterno}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Tipo & N° de Documento</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">
-                        {selectedApplicant.formState.personales.tipoDocumento}: {selectedApplicant.formState.personales.numeroDocumento}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Género</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.genero}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Fecha de Nacimiento</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.fechaNacimiento}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Celular de Contacto</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.celularContacto || 'No registrado'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Colegio de Procedencia</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.colegioProcedencia || 'Ninguno'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Tipo de Colegio</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.tipoColegioProcedencia || 'No registrado'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Distrito del Colegio</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.nivelGradoProcedencia || 'No registrado'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">País de Nacimiento</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.lugarAdicionales?.paisNacimiento || 'Perú'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Lugar de Nacimiento</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">
-                        {selectedApplicant.formState.lugarAdicionales?.lugarNacimiento || 'Lima'} ({selectedApplicant.formState.lugarAdicionales?.departamento || 'Lima'} - {selectedApplicant.formState.lugarAdicionales?.provincia || 'Lima'} - {selectedApplicant.formState.lugarAdicionales?.distrito || 'Lima'})
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Vive con</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.lugarAdicionales?.viveCon || 'Padres'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Responsable de Matrícula</p>
-                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.lugarAdicionales?.responsableMatricula || 'No especificado'}</p>
-                    </div>
-                  </div>
-
-                  {/* Salud & Religión block */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200 text-xs">
-                    <div className="space-y-1 bg-white p-2.5 rounded-xl border border-slate-200">
-                      <span className="font-extrabold text-slate-700 block uppercase text-[10px] tracking-wider">Salud y Seguro</span>
-                      <p className="pt-1"><span className="text-slate-400">¿Cuenta con Seguro?:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.cuentaSeguro || 'No'}</strong></p>
-                      {selectedApplicant.formState.lugarAdicionales?.cuentaSeguro === 'Si' && (
-                        <p><span className="text-slate-400">Compañía Aseguradora:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.aseguradora || 'No registrada'}</strong></p>
-                      )}
-                      <p><span className="text-slate-400">Diagnóstico Médico/Psic.:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.tieneDiagnostico || 'No'}</strong></p>
-                      {selectedApplicant.formState.lugarAdicionales?.tieneDiagnostico === 'Si' && (
-                        <p><span className="text-slate-400">Detalles Diagnóstico:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.diagnosticoDetalle || 'Ninguno'}</strong></p>
-                      )}
-                    </div>
-                    <div className="space-y-1 bg-white p-2.5 rounded-xl border border-slate-200">
-                      <span className="font-extrabold text-slate-700 block uppercase text-[10px] tracking-wider">Religión y Sacramentos</span>
-                      <p className="pt-1"><span className="text-slate-400">Religión del Menor:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.religion || 'Católica'}</strong></p>
-                      <p><span className="text-slate-400">¿Asiste a alguna Iglesia?:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.asisteIglesia || 'No'}</strong></p>
-                      {selectedApplicant.formState.lugarAdicionales?.asisteIglesia === 'Si' && (
-                        <p><span className="text-slate-400">Nombre Iglesia/Parroquia:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.iglesiaParroquia || 'No especificada'}</strong></p>
-                      )}
-                      <p>
-                        <span className="text-slate-400">Sacramentos:</span>{' '}
-                        <strong className="text-slate-800">
-                          {selectedApplicant.formState.lugarAdicionales?.bautizado ? 'Bautizado ✓' : 'No Bautizado'}
-                          {selectedApplicant.formState.lugarAdicionales?.primeraComunion ? ' | Primera Comunión ✓' : ' | Sin Primera Comunión'}
-                        </strong>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 4. Información de Padres y Apoderado Legal */}
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-2">
-                    <div className="flex items-center gap-1.5">
-                      <Users className="w-4 h-4 text-slate-500" />
-                      <span className="text-xs font-black uppercase text-slate-700 tracking-wider">Familiar y Apoderado Legal (Paso 2)</span>
-                    </div>
-                    {/* Compact tabs */}
-                    <div className="flex gap-1 bg-slate-200/70 p-1 rounded-xl self-start sm:self-auto">
-                      {[
-                        { id: 'apoderado', label: 'Apoderado' },
-                        { id: 'mama', label: 'Mamá' },
-                        { id: 'papa', label: 'Papá' },
-                        { id: 'ficha', label: 'Ficha Fam.' }
-                      ].map(tab => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => setActiveFamilyTab(tab.id as any)}
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
-                            activeFamilyTab === tab.id
-                              ? 'bg-slate-900 text-white shadow-xs'
-                              : 'text-slate-600 hover:bg-slate-300'
-                          }`}
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {activeFamilyTab === 'apoderado' && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nombres y Apellidos</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.apoderado.nombres} {selectedApplicant.formState.padresTutores.apoderado.apellidoPaterno} {selectedApplicant.formState.padresTutores.apoderado.apellidoMaterno}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Documento de Identidad</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.apoderado.tipoDocumento || 'DNI'}: {selectedApplicant.formState.padresTutores.apoderado.numeroDocumento}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Celular</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.apoderado.celularContacto}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Correo Electrónico</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5 break-all">{selectedApplicant.formState.padresTutores.apoderado.correoElectronico}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Domicilio</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.apoderado.pais || 'Perú'} - {selectedApplicant.formState.padresTutores.apoderado.departamento || 'Lima'} - {selectedApplicant.formState.padresTutores.apoderado.provincia || 'Lima'} - {selectedApplicant.formState.padresTutores.apoderado.distrito || 'Lima'}
-                        </p>
-                      </div>
-                      <div className="col-span-2">
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Dirección Exacta</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.apoderado.direccionDomicilio || 'No registrada'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Grado Instrucción / Profesión</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.apoderado.gradoInstruccion} / {selectedApplicant.formState.padresTutores.apoderado.profesionOcupacion}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Centro de Trabajo</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.apoderado.centroTrabajo || 'No registrado'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Cargo</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.apoderado.cargo || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Ingresos Mensuales / Horario</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          S/. {selectedApplicant.formState.padresTutores.apoderado.ingresosMensuales || 'No especificado'} ({selectedApplicant.formState.padresTutores.apoderado.horarioLaboral || 'No registrado'})
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Estado de Vida</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.apoderado.fallecido ? '⚠️ Finado (Fallecido)' : 'Vivo'}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeFamilyTab === 'mama' && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nombres y Apellidos</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.mama.nombres} {selectedApplicant.formState.padresTutores.mama.apellidoPaterno} {selectedApplicant.formState.padresTutores.mama.apellidoMaterno}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Documento de Identidad</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.mama.tipoDocumento || 'DNI'}: {selectedApplicant.formState.padresTutores.mama.numeroDocumento}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Celular</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.mama.celularContacto}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Correo Electrónico</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5 break-all">{selectedApplicant.formState.padresTutores.mama.correoElectronico}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Domicilio</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.mama.pais || 'Perú'} - {selectedApplicant.formState.padresTutores.mama.departamento || 'Lima'} - {selectedApplicant.formState.padresTutores.mama.provincia || 'Lima'} - {selectedApplicant.formState.padresTutores.mama.distrito || 'Lima'}
-                        </p>
-                      </div>
-                      <div className="col-span-2">
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Dirección Exacta</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.mama.direccionDomicilio || 'No registrada'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Grado Instrucción / Profesión</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.mama.gradoInstruccion} / {selectedApplicant.formState.padresTutores.mama.profesionOcupacion}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Centro de Trabajo</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.mama.centroTrabajo || 'No registrado'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Cargo</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.mama.cargo || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Ingresos Mensuales / Horario</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          S/. {selectedApplicant.formState.padresTutores.mama.ingresosMensuales || 'No especificado'} ({selectedApplicant.formState.padresTutores.mama.horarioLaboral || 'No registrado'})
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Estado de Vida</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.mama.fallecido ? '⚠️ Finada (Fallecida)' : 'Viva'}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeFamilyTab === 'papa' && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nombres y Apellidos</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.papa.nombres} {selectedApplicant.formState.padresTutores.papa.apellidoPaterno} {selectedApplicant.formState.padresTutores.papa.apellidoMaterno}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Documento de Identidad</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.papa.tipoDocumento || 'DNI'}: {selectedApplicant.formState.padresTutores.papa.numeroDocumento}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Celular</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.papa.celularContacto}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Correo Electrónico</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5 break-all">{selectedApplicant.formState.padresTutores.papa.correoElectronico}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Domicilio</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.papa.pais || 'Perú'} - {selectedApplicant.formState.padresTutores.papa.departamento || 'Lima'} - {selectedApplicant.formState.padresTutores.papa.provincia || 'Lima'} - {selectedApplicant.formState.padresTutores.papa.distrito || 'Lima'}
-                        </p>
-                      </div>
-                      <div className="col-span-2">
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Dirección Exacta</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.papa.direccionDomicilio || 'No registrada'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Grado Instrucción / Profesión</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.papa.gradoInstruccion} / {selectedApplicant.formState.padresTutores.papa.profesionOcupacion}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Centro de Trabajo</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.papa.centroTrabajo || 'No registrado'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Cargo</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.papa.cargo || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Ingresos Mensuales / Horario</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          S/. {selectedApplicant.formState.padresTutores.papa.ingresosMensuales || 'No especificado'} ({selectedApplicant.formState.padresTutores.papa.horarioLaboral || 'No registrado'})
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Estado de Vida</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.padresTutores.papa.fallecido ? '⚠️ Finado (Fallecido)' : 'Vivo'}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeFamilyTab === 'ficha' && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nombre de la Familia</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.nombreFamilia || 'Pérez Luján'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Código de Familia</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.codigoFamilia || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Teléfono de Contacto</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.telefonoContacto || 'Ninguno'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Estado Civil de los Padres</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.estadoCivilPadres || 'Casados'}</p>
-                      </div>
-                      <div className="col-span-2">
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Dirección de Residencia</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.direccionResidencia || 'No registrada'}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">¿Tiene Hermanos en el Colegio?</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">
-                          {selectedApplicant.formState.fichaFamilia?.tieneHermanosColegio === 'Si' ? `Sí (${selectedApplicant.formState.fichaFamilia?.cantidadHermanos} hermano(s))` : 'No'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Situación de la Vivienda</p>
-                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.viviendaSituacion || 'Propia'}</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* 5. Documents checklist */}
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-4">
-                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider">Documentos Cargados</h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
-                    {(() => {
-                      const isPrivateSchool = selectedApplicant.formState.personales.tipoColegioProcedencia === 'Colegio Particular';
-                      const isConductReq = requiresGoodConduct(selectedApplicant.formState.postulacion.gradoIngreso);
-
-                      return [
-                        { key: 'dniPostulante', label: 'DNI Postulante', required: true },
-                        { key: 'dniApoderado', label: 'DNI Apoderado', required: true },
-                        { key: 'reciboServicio', label: 'Recibo Servicio', required: true },
-                        ...(isPrivateSchool ? [{ key: 'constanciaNoAdeudo', label: 'Constancia No Adeudo', required: true }] : []),
-                        ...(isConductReq ? [{ key: 'cartaBuenaConducta', label: 'Carta Buena Conducta', required: true }] : [])
-                      ].map(doc => {
-                        const isDni = doc.key === 'dniPostulante' || doc.key === 'dniApoderado';
-                        const rawVal = doc.key === 'reciboServicio' 
-                          ? (selectedApplicant.documents?.['reciboServicio'] || (selectedApplicant.documents?.['dniPostulante'] ? 'recibo_servicio_domicilio.pdf' : null))
-                          : (doc.key === 'cartaBuenaConducta'
-                            ? (selectedApplicant.documents?.['cartaBuenaConducta'] || (selectedApplicant.documents?.['dniPostulante'] ? 'carta_buena_conducta_sello.pdf' : null))
-                            : selectedApplicant.documents?.[doc.key as any]);
-                        
-                        let isUploaded = false;
-                        let fileLabel = '';
-
-                        if (isDni) {
-                          const parsed = parseDniValue(rawVal);
-                          isUploaded = !!parsed.frontal && !!parsed.posterior;
-                          if (isUploaded) {
-                            fileLabel = 'Completo (Ambas caras)';
-                          } else if (parsed.frontal || parsed.posterior) {
-                            fileLabel = 'Incompleto (Falta una cara)';
-                          }
-                        } else {
-                          isUploaded = !!rawVal;
-                          fileLabel = rawVal || '';
-                        }
-
-                        return (
-                          <div key={doc.key} className="bg-white p-2.5 rounded-xl border border-slate-200 flex flex-col justify-between">
-                            <span className="font-bold text-[10px] text-slate-400 uppercase tracking-wider block">{doc.label}</span>
-                            {isUploaded ? (
-                              <span className="text-[10px] text-green-700 font-black mt-1.5 break-all block">
-                                ✓ {fileLabel}
-                              </span>
-                            ) : (
-                              <div className="mt-1.5">
-                                <span className="text-[10px] text-rose-500 font-bold flex items-center gap-1">
-                                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                  FALTA
-                                </span>
-                                {fileLabel && (
-                                  <span className="text-[9px] text-amber-600 font-semibold block mt-0.5 leading-tight">
-                                    {fileLabel}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-
-                  {/* Inline visualizer for DNI Frontal & Posterior */}
-                  <div className="pt-2 border-t border-slate-200">
-                    <h5 className="text-[11px] font-bold uppercase text-slate-500 tracking-wider mb-3">Previsualización de Documentos DNI</h5>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* DNI Postulante */}
-                      <div className="bg-white p-3 rounded-xl border border-slate-200/80 space-y-2.5">
-                        <span className="font-extrabold text-[11px] text-slate-700 block border-b pb-1">DNI del Postulante</span>
-                        {(() => {
-                          const rawVal = selectedApplicant.documents?.['dniPostulante'];
-                          const parsed = parseDniValue(rawVal);
-                          const studentName = selectedApplicant.formState?.personales?.nombres || 'Postulante';
-                          const studentLastName = `${selectedApplicant.formState?.personales?.apellidoPaterno || ''} ${selectedApplicant.formState?.personales?.apellidoMaterno || ''}`.trim() || 'Apellidos';
-                          const studentDocNum = selectedApplicant.formState?.personales?.numeroDocumento || '00000000';
-                          const birthDate = selectedApplicant.formState?.personales?.fechaNacimiento || 'DD/MM/AAAA';
-                          const gender = selectedApplicant.formState?.personales?.genero || 'M/F';
-
-                          return (
-                            <div className="grid grid-cols-2 gap-3">
-                              {/* Frontal */}
-                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
-                                {parsed.frontal ? (
-                                  <div className="flex-1 flex flex-col justify-between">
-                                    <div className="flex justify-between items-start">
-                                      <div className="w-6 h-7 bg-indigo-200 border border-indigo-300 rounded flex items-center justify-center text-[8px] font-bold text-indigo-700 shrink-0">Foto</div>
-                                      <div className="text-right">
-                                        <span className="text-[8px] font-extrabold text-blue-600 block leading-tight font-mono">REPÚBLICA DEL PERÚ</span>
-                                        <span className="text-[7px] text-slate-400 block leading-none font-mono">DNI POSTULANTE</span>
-                                      </div>
-                                    </div>
-                                    <div className="text-[8px] space-y-0.5 mt-2 font-mono">
-                                      <p className="truncate"><span className="text-slate-400">Apellidos:</span> <strong className="text-slate-700">{studentLastName}</strong></p>
-                                      <p className="truncate"><span className="text-slate-400">Nombres:</span> <strong className="text-slate-700">{studentName}</strong></p>
-                                      <p className="truncate"><span className="text-slate-400">Nº Doc:</span> <strong className="text-blue-700 font-extrabold">{studentDocNum}</strong></p>
-                                    </div>
-                                    <span className="text-[8px] text-green-700 font-bold bg-green-100 px-1.5 py-0.5 rounded mt-2 text-center block truncate">
-                                      ✓ Cara Frontal
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <div className="flex-1 flex flex-col items-center justify-center text-center p-2">
-                                    <AlertCircle className="w-6 h-6 text-slate-300 mb-1" />
-                                    <span className="text-[9px] text-slate-400 font-semibold leading-tight">Cara Frontal no cargada</span>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Posterior */}
-                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
-                                {parsed.posterior ? (
-                                  <div className="flex-1 flex flex-col justify-between">
-                                    <div className="w-full h-2 bg-slate-400 rounded-sm mb-1"></div>
-                                    <div className="text-[8px] space-y-0.5 font-mono">
-                                      <p className="truncate"><span className="text-slate-400">F. Nac:</span> <strong className="text-slate-700">{birthDate}</strong></p>
-                                      <p className="truncate"><span className="text-slate-400">Sexo:</span> <strong className="text-slate-700">{gender}</strong></p>
-                                    </div>
-                                    <div className="border border-dashed border-slate-300 p-1 rounded bg-white text-center mt-2">
-                                      <span className="text-[6px] text-slate-400 block tracking-widest font-mono">|||||| |||| || |||||</span>
-                                    </div>
-                                    <span className="text-[8px] text-indigo-700 font-bold bg-indigo-100 px-1.5 py-0.5 rounded mt-2 text-center block truncate">
-                                      ✓ Cara Posterior
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <div className="flex-1 flex flex-col items-center justify-center text-center p-2">
-                                    <AlertCircle className="w-6 h-6 text-slate-300 mb-1" />
-                                    <span className="text-[9px] text-slate-400 font-semibold leading-tight">Cara Posterior no cargada</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {/* DNI Apoderado */}
-                      <div className="bg-white p-3 rounded-xl border border-slate-200/80 space-y-2.5">
-                        <span className="font-extrabold text-[11px] text-slate-700 block border-b pb-1">DNI del Apoderado</span>
-                        {(() => {
-                          const rawVal = selectedApplicant.documents?.['dniApoderado'];
-                          const parsed = parseDniValue(rawVal);
-                          const apoName = selectedApplicant.formState?.padresTutores?.apoderado?.nombres || 'Apoderado';
-                          const apoLastName = `${selectedApplicant.formState?.padresTutores?.apoderado?.apellidoPaterno || ''} ${selectedApplicant.formState?.padresTutores?.apoderado?.apellidoMaterno || ''}`.trim() || 'Apellidos';
-                          const apoDocNum = selectedApplicant.formState?.padresTutores?.apoderado?.numeroDocumento || '00000000';
-                          const birthDate = selectedApplicant.formState?.padresTutores?.apoderado?.fechaNacimiento || 'DD/MM/AAAA';
-
-                          return (
-                            <div className="grid grid-cols-2 gap-3">
-                              {/* Frontal */}
-                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
-                                {parsed.frontal ? (
-                                  <div className="flex-1 flex flex-col justify-between">
-                                    <div className="flex justify-between items-start">
-                                      <div className="w-6 h-7 bg-amber-200 border border-amber-300 rounded flex items-center justify-center text-[8px] font-bold text-amber-700 shrink-0">Foto</div>
-                                      <div className="text-right">
-                                        <span className="text-[8px] font-extrabold text-blue-600 block leading-tight font-mono">REPÚBLICA DEL PERÚ</span>
-                                        <span className="text-[7px] text-slate-400 block leading-none font-mono">DNI APODERADO</span>
-                                      </div>
-                                    </div>
-                                    <div className="text-[8px] space-y-0.5 mt-2 font-mono">
-                                      <p className="truncate"><span className="text-slate-400">Apellidos:</span> <strong className="text-slate-700">{apoLastName}</strong></p>
-                                      <p className="truncate"><span className="text-slate-400">Nombres:</span> <strong className="text-slate-700">{apoName}</strong></p>
-                                      <p className="truncate"><span className="text-slate-400">Nº Doc:</span> <strong className="text-blue-700 font-extrabold">{apoDocNum}</strong></p>
-                                    </div>
-                                    <span className="text-[8px] text-green-700 font-bold bg-green-100 px-1.5 py-0.5 rounded mt-2 text-center block truncate">
-                                      ✓ Cara Frontal
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <div className="flex-1 flex flex-col items-center justify-center text-center p-2">
-                                    <AlertCircle className="w-6 h-6 text-slate-300 mb-1" />
-                                    <span className="text-[9px] text-slate-400 font-semibold leading-tight">Cara Frontal no cargada</span>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Posterior */}
-                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
-                                {parsed.posterior ? (
-                                  <div className="flex-1 flex flex-col justify-between">
-                                    <div className="w-full h-2 bg-slate-400 rounded-sm mb-1"></div>
-                                    <div className="text-[8px] space-y-0.5 font-mono">
-                                      <p className="truncate"><span className="text-slate-400">F. Nac:</span> <strong className="text-slate-700">{birthDate}</strong></p>
-                                    </div>
-                                    <div className="border border-dashed border-slate-300 p-1 rounded bg-white text-center mt-2">
-                                      <span className="text-[6px] text-slate-400 block tracking-widest font-mono">|||||| |||| || |||||</span>
-                                    </div>
-                                    <span className="text-[8px] text-indigo-700 font-bold bg-indigo-100 px-1.5 py-0.5 rounded mt-2 text-center block truncate">
-                                      ✓ Cara Posterior
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <div className="flex-1 flex flex-col items-center justify-center text-center p-2">
-                                    <AlertCircle className="w-6 h-6 text-slate-300 mb-1" />
-                                    <span className="text-[9px] text-slate-400 font-semibold leading-tight">Cara Posterior no cargada</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {renderDecisionPanel(
-                  'documents',
-                  selectedApplicant.documentsStatus || (selectedApplicant.status === 'documents_verified' ? 'approved' : selectedApplicant.status === 'observed' ? 'observed' : selectedApplicant.status === 'rejected' ? 'rejected' : undefined),
-                  selectedApplicant.documentsObservation,
-                  selectedApplicant.documentsRejectedReason,
-                  selectedApplicant.documentsReviewedBy,
-                  selectedApplicant.documentsReviewedAt,
-                  () => {
-                    const updated: AdmissionRecord = {
-                      ...selectedApplicant,
-                      documentsStatus: 'approved',
-                      status: 'documents_verified',
-                      documentsReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                      documentsReviewedAt: new Date().toLocaleString('es-PE')
-                    };
-                    onSaveRecord(updated);
-                    setSelectedApplicant(updated);
-                    addAuditLog(
-                      'Aprobación de Documentos',
-                      `Documentación del expediente de ${selectedApplicant.formState.personales.nombres} aprobada con éxito.`,
-                      selectedApplicant.id
-                    );
-                    triggerToast("✅ Documentos aprobados con éxito. Se habilitó la siguiente etapa.");
-                  },
-                  (reason) => {
-                    const updated: AdmissionRecord = {
-                      ...selectedApplicant,
-                      documentsStatus: 'observed',
-                      documentsObservation: reason,
-                      status: 'observed',
-                      documentsReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                      documentsReviewedAt: new Date().toLocaleString('es-PE')
-                    };
-                    onSaveRecord(updated);
-                    setSelectedApplicant(updated);
-                    addAuditLog(
-                      'Observación de Documentos',
-                      `Documentación observada: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
-                      selectedApplicant.id
-                    );
-                    triggerToast("⚠️ Documentos marcados como Observados.");
-                  },
-                  (reason) => {
-                    const updated: AdmissionRecord = {
-                      ...selectedApplicant,
-                      documentsStatus: 'rejected',
-                      documentsRejectedReason: reason,
-                      status: 'rejected',
-                      documentsReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                      documentsReviewedAt: new Date().toLocaleString('es-PE')
-                    };
-                    onSaveRecord(updated);
-                    setSelectedApplicant(updated);
-                    addAuditLog(
-                      'Rechazo de Documentos',
-                      `Documentación rechazada permanentemente: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
-                      selectedApplicant.id
-                    );
-                    triggerToast("❌ Documentación rechazada de forma permanente.");
-                  },
-                  'Documentos'
-                )}
-
-                {/* Sede y Salón (Reemplaza Pabellón y Aula) */}
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2">
-                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center gap-1.5 border-b pb-1">
-                    <MapPin className="w-4 h-4 text-emerald-500" />
-                    <span>Sede y Salón de Clases</span>
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-1">
-                    <div>
-                      <p className="text-slate-400 font-semibold">Sede Escolar Asignada:</p>
-                      <p className="font-extrabold text-slate-800 text-sm mt-0.5">{selectedApplicant.formState.postulacion.sedeLocal}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 font-semibold">Salón / Aula de Clases:</p>
-                      {selectedApplicant.status === 'enrolled' && selectedApplicant.assignedClassroom ? (
-                        <p className="font-black text-green-700 text-sm pt-1 bg-green-50 px-2 py-1 rounded-lg border border-green-200 mt-1 inline-block">
-                          {selectedApplicant.assignedClassroom}
-                        </p>
-                      ) : (
-                        <p className="text-slate-400 italic pt-1.5">Pendiente de asignación después de la matrícula.</p>
-                      )}
-                    </div>
-                  </div>
-                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
-                    {/* A. Validación de Pago Derecho de Admisión */}
-                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2 flex flex-col justify-between">
-                      <div>
-                        <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider mb-1">
-                          1. Pago Derecho de Admisión
-                        </span>
-                        {selectedApplicant.paymentComprobante ? (
-                          <div className="space-y-2">
-                            <p className="text-slate-500 font-semibold text-[10px] break-all">
-                              📄 {selectedApplicant.paymentComprobante}
-                            </p>
-                            <div className="space-y-1 text-[10px] text-slate-500 bg-slate-50 p-1.5 rounded-lg font-mono">
-                              <p>Monto: S/. {selectedApplicant.paymentAmount || '350.00'}</p>
-                              <p>Código: {selectedApplicant.paymentCode || `OP-${selectedApplicant.id}`}</p>
-                              {selectedApplicant.paymentReviewedBy && (
-                                <p className="text-indigo-700 font-bold">Evaluador: {selectedApplicant.paymentReviewedBy}</p>
-                              )}
-                              {selectedApplicant.paymentReviewedAt && (
-                                <p className="text-indigo-700 font-bold">Fecha Eval: {selectedApplicant.paymentReviewedAt}</p>
-                              )}
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-slate-400 italic text-[11px] pt-1">Ningún comprobante cargado.</p>
-                        )}
-                      </div>
-
-                      {selectedApplicant.paymentComprobante && (
-                        <div className="pt-2">
-                          {renderDecisionPanel(
-                            'payment',
-                            selectedApplicant.paymentState === 'paid' ? 'approved' : selectedApplicant.paymentState === 'observed' ? 'observed' : selectedApplicant.paymentState === 'rejected' ? 'rejected' : undefined,
-                            selectedApplicant.paymentObservation,
-                            selectedApplicant.paymentRejectedReason,
-                            selectedApplicant.paymentReviewedBy,
-                            selectedApplicant.paymentReviewedAt,
-                            () => {
-                              const updated: AdmissionRecord = {
-                                ...selectedApplicant,
-                                paymentState: 'paid',
-                                paymentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                                paymentReviewedAt: new Date().toLocaleString('es-PE'),
-                              };
-                              onSaveRecord(updated);
-                              setSelectedApplicant(updated);
-                              addAuditLog(
-                                'Aprobación de Pago',
-                                `Pago por derecho de admisión aprobado con éxito para ${selectedApplicant.formState.personales.nombres}. El siguiente paso se ha desbloqueado automáticamente.`,
-                                selectedApplicant.id
-                              );
-                              triggerToast("✅ Pago aprobado y siguiente paso desbloqueado.");
-                            },
-                            (reason) => {
-                              const updated: AdmissionRecord = {
-                                ...selectedApplicant,
-                                paymentState: 'observed',
-                                paymentObservation: reason,
-                                paymentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                                paymentReviewedAt: new Date().toLocaleString('es-PE')
-                              };
-                              onSaveRecord(updated);
-                              setSelectedApplicant(updated);
-                              addAuditLog(
-                                'Observación de Pago',
-                                `Pago por derecho de admisión marcado como observado: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
-                                selectedApplicant.id
-                              );
-                              triggerToast("⚠️ Pago marcado como Observado.");
-                            },
-                            (reason) => {
-                              const updated: AdmissionRecord = {
-                                ...selectedApplicant,
-                                paymentState: 'rejected',
-                                paymentRejectedReason: reason,
-                                status: 'rejected',
-                                paymentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                                paymentReviewedAt: new Date().toLocaleString('es-PE')
-                              };
-                              onSaveRecord(updated);
-                              setSelectedApplicant(updated);
-                              addAuditLog(
-                                'Rechazo de Pago',
-                                `Pago por derecho de admisión rechazado permanentemente: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
-                                selectedApplicant.id
-                              );
-                              triggerToast("❌ Pago rechazado permanentemente.");
-                            },
-                            'Pago de Admisión'
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* B. Asistencia Cita Psicopedagógica */}
-                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2 flex flex-col justify-between">
-                      <div>
-                        <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider mb-1">
-                          2. Cita Psicopedagógica
-                        </span>
-                        {selectedApplicant.appointment ? (
-                          <div className="text-[10px] text-slate-600 leading-tight space-y-1">
-                            <p><strong>Fecha:</strong> {selectedApplicant.appointment.dateLabel || selectedApplicant.appointment.date}</p>
-                            <p><strong>Horario:</strong> {selectedApplicant.appointment.timeSlot || selectedApplicant.appointment.time}</p>
-                            <p><strong>Especialista:</strong> {selectedApplicant.appointment.psychologist || 'Por designar'}</p>
-                            <p><strong>Obs:</strong> {selectedApplicant.appointment.observations || 'Sin observaciones'}</p>
-                          </div>
-                        ) : (
-                          <p className="text-slate-400 italic text-[11px] pt-1">Cita no agendada todavía.</p>
-                        )}
-                      </div>
-
-                      {selectedApplicant.appointment && (
-                        <div className="pt-2">
-                          {renderDecisionPanel(
-                            'appointment',
-                            selectedApplicant.appointmentApproved || selectedApplicant.appointmentStatus === 'approved' ? 'approved' : selectedApplicant.appointmentStatus === 'observed' ? 'observed' : selectedApplicant.appointmentStatus === 'rejected' ? 'rejected' : undefined,
-                            selectedApplicant.appointmentObservation,
-                            selectedApplicant.appointmentRejectedReason,
-                            selectedApplicant.appointmentReviewedBy,
-                            selectedApplicant.appointmentReviewedAt,
-                            () => {
-                              const updated: AdmissionRecord = {
-                                ...selectedApplicant,
-                                appointmentApproved: true,
-                                appointmentStatus: 'approved',
-                                appointmentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                                appointmentReviewedAt: new Date().toLocaleString('es-PE')
-                              };
-                              onSaveRecord(updated);
-                              setSelectedApplicant(updated);
-                              addAuditLog(
-                                'Aprobación Cita Psicopedagógica',
-                                `Asistencia y cita psicopedagógica aprobada para ${selectedApplicant.formState.personales.nombres}. Siguiente paso habilitado.`,
-                                selectedApplicant.id
-                              );
-                              triggerToast("✅ Cita aprobada y siguiente paso desbloqueado.");
-                            },
-                            (reason) => {
-                              const updated: AdmissionRecord = {
-                                ...selectedApplicant,
-                                appointmentApproved: false,
-                                appointmentStatus: 'observed',
-                                appointmentObservation: reason,
-                                appointmentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                                appointmentReviewedAt: new Date().toLocaleString('es-PE')
-                              };
-                              onSaveRecord(updated);
-                              setSelectedApplicant(updated);
-                              addAuditLog(
-                                'Observación Cita Psicopedagógica',
-                                `Cita psicopedagógica marcada como observada: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
-                                selectedApplicant.id
-                              );
-                              triggerToast("⚠️ Cita marcada como Observada.");
-                            },
-                            (reason) => {
-                              const updated: AdmissionRecord = {
-                                ...selectedApplicant,
-                                appointmentApproved: false,
-                                appointmentStatus: 'rejected',
-                                appointmentRejectedReason: reason,
-                                status: 'rejected',
-                                appointmentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                                appointmentReviewedAt: new Date().toLocaleString('es-PE')
-                              };
-                              onSaveRecord(updated);
-                              setSelectedApplicant(updated);
-                              addAuditLog(
-                                'Rechazo Cita Psicopedagógica',
-                                `Cita psicopedagógica rechazada permanentemente: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
-                                selectedApplicant.id
-                              );
-                              triggerToast("❌ Cita rechazada permanentemente.");
-                            },
-                            'Cita Psicopedagógica'
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* C. Evaluación Académica (solo grados aplicables) */}
-                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2 flex flex-col justify-between">
-                      <div>
-                        <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider mb-1">
-                          3. Evaluación Académica
-                        </span>
-                        {(() => {
-                          const gradeName = selectedApplicant.formState.postulacion.gradoIngreso;
-                          const requiresEval = gradeName && !gradeName.toLowerCase().includes('inicial');
-                          
-                          if (!requiresEval) {
-                            return <p className="text-slate-400 italic text-[11px] pt-1">No aplica para este grado (Inicial).</p>;
-                          }
-
-                          if (selectedApplicant.academicEvaluation) {
-                            return (
-                              <div className="text-[10px] text-slate-600 leading-tight space-y-1">
-                                <p><strong>Fecha:</strong> {selectedApplicant.academicEvaluation.dateLabel}</p>
-                                <p><strong>Horario:</strong> {selectedApplicant.academicEvaluation.timeSlot}</p>
-                                <p><strong>Obs:</strong> {selectedApplicant.academicEvaluation.observations || 'Sin observaciones'}</p>
-                              </div>
-                            );
-                          }
-
-                          return <p className="text-slate-400 italic text-[11px] pt-1">Evaluación no agendada todavía.</p>;
-                        })()}
-                      </div>
-
-                      {(() => {
-                        const gradeName = selectedApplicant.formState.postulacion.gradoIngreso;
-                        const requiresEval = gradeName && !gradeName.toLowerCase().includes('inicial');
-                        if (requiresEval && selectedApplicant.academicEvaluation) {
-                          return (
-                            <div className="pt-2">
-                              {renderDecisionPanel(
-                                'academic',
-                                selectedApplicant.academicEvaluationApproved || selectedApplicant.academicEvaluationStatus === 'approved' ? 'approved' : selectedApplicant.academicEvaluationStatus === 'observed' ? 'observed' : selectedApplicant.academicEvaluationStatus === 'rejected' ? 'rejected' : undefined,
-                                selectedApplicant.academicEvaluationObservation,
-                                selectedApplicant.academicEvaluationRejectedReason,
-                                selectedApplicant.academicEvaluationReviewedBy,
-                                selectedApplicant.academicEvaluationReviewedAt,
-                                () => {
-                                  const updated: AdmissionRecord = {
-                                    ...selectedApplicant,
-                                    academicEvaluationApproved: true,
-                                    academicEvaluationStatus: 'approved',
-                                    academicEvaluationReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                                    academicEvaluationReviewedAt: new Date().toLocaleString('es-PE')
-                                  };
-                                  onSaveRecord(updated);
-                                  setSelectedApplicant(updated);
-                                  addAuditLog(
-                                    'Aprobación Evaluación Académica',
-                                    `Evaluación académica aprobada para ${selectedApplicant.formState.personales.nombres}.`,
-                                    selectedApplicant.id
-                                  );
-                                  triggerToast("✅ Evaluación aprobada y siguiente paso desbloqueado.");
-                                },
-                                (reason) => {
-                                  const updated: AdmissionRecord = {
-                                    ...selectedApplicant,
-                                    academicEvaluationApproved: false,
-                                    academicEvaluationStatus: 'observed',
-                                    academicEvaluationObservation: reason,
-                                    academicEvaluationReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                                    academicEvaluationReviewedAt: new Date().toLocaleString('es-PE')
-                                  };
-                                  onSaveRecord(updated);
-                                  setSelectedApplicant(updated);
-                                  addAuditLog(
-                                    'Observación Evaluación Académica',
-                                    `Evaluación académica marcada como observada: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
-                                    selectedApplicant.id
-                                  );
-                                  triggerToast("⚠️ Evaluación marcada como Observada.");
-                                },
-                                (reason) => {
-                                  const updated: AdmissionRecord = {
-                                    ...selectedApplicant,
-                                    academicEvaluationApproved: false,
-                                    academicEvaluationStatus: 'rejected',
-                                    academicEvaluationRejectedReason: reason,
-                                    status: 'rejected',
-                                    academicEvaluationReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                                    academicEvaluationReviewedAt: new Date().toLocaleString('es-PE')
-                                  };
-                                  onSaveRecord(updated);
-                                  setSelectedApplicant(updated);
-                                  addAuditLog(
-                                    'Rechazo Evaluación Académica',
-                                    `Evaluación académica rechazada permanentemente: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
-                                    selectedApplicant.id
-                                  );
-                                  triggerToast("❌ Evaluación rechazada permanentemente.");
-                                },
-                                'Evaluación Académica'
-                              )}
-                            </div>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </div>
-
-                    {/* D. Estado Final de Admisión */}
-                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2 flex flex-col justify-between">
-                      <div>
-                        <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider mb-1">
-                          4. Estado Final de Admisión
-                        </span>
-                        <p className="text-[10px] text-slate-500 leading-normal">
-                          Decisión final de ingreso del postulante al plantel educativo.
-                        </p>
-                      </div>
-
-                      <div className="pt-2">
-                        {renderDecisionPanel(
-                          'final',
-                          selectedApplicant.finalStatus || (selectedApplicant.status === 'admitted' || selectedApplicant.status === 'enrolled' ? 'approved' : selectedApplicant.status === 'observed' ? 'observed' : selectedApplicant.status === 'rejected' ? 'rejected' : undefined),
-                          selectedApplicant.finalStatusObservation,
-                          selectedApplicant.finalStatusRejectedReason,
-                          selectedApplicant.finalStatusReviewedBy,
-                          selectedApplicant.finalStatusReviewedAt,
-                          () => {
-                            const updated: AdmissionRecord = {
-                              ...selectedApplicant,
-                              finalStatus: 'approved',
-                              status: 'admitted',
-                              finalStatusReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                              finalStatusReviewedAt: new Date().toLocaleString('es-PE')
-                            };
-                            onSaveRecord(updated);
-                            setSelectedApplicant(updated);
-                            addAuditLog(
-                              'Aprobación Final de Admisión',
-                              `Postulación aprobada de forma final por ${currentUser?.nombres || currentUser?.username || 'Administrador'}. Postulante marcado como Admitido.`,
-                              selectedApplicant.id
-                            );
-                            triggerToast("✅ Postulación admitida de forma final.");
-                          },
-                          (reason) => {
-                            const updated: AdmissionRecord = {
-                              ...selectedApplicant,
-                              finalStatus: 'observed',
-                              finalStatusObservation: reason,
-                              status: 'observed',
-                              finalStatusReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                              finalStatusReviewedAt: new Date().toLocaleString('es-PE')
-                            };
-                            onSaveRecord(updated);
-                            setSelectedApplicant(updated);
-                            addAuditLog(
-                              'Observación Final de Admisión',
-                              `Postulación marcada como observada en revisión final: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
-                              selectedApplicant.id
-                            );
-                            triggerToast("⚠️ Postulación marcada como Observada.");
-                          },
-                          (reason) => {
-                            const updated: AdmissionRecord = {
-                              ...selectedApplicant,
-                              finalStatus: 'rejected',
-                              finalStatusRejectedReason: reason,
-                              status: 'rejected',
-                              finalStatusReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
-                              finalStatusReviewedAt: new Date().toLocaleString('es-PE')
-                            };
-                            onSaveRecord(updated);
-                            setSelectedApplicant(updated);
-                            addAuditLog(
-                              'Rechazo Final de Admisión',
-                              `Postulación rechazada permanentemente en revisión final: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
-                              selectedApplicant.id
-                            );
-                            triggerToast("❌ Postulación rechazada permanentemente.");
-                          },
-                          'Estado Final de Admisión'
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal footer actions */}
-              <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 shrink-0">
-                <button
-                  onClick={() => setSelectedApplicant(null)}
-                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded-xl text-xs transition cursor-pointer"
-                >
-                  Cerrar Ventana
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <ApplicantDossierModal
+        selectedApplicant={selectedApplicant}
+        setSelectedApplicant={setSelectedApplicant}
+        currentUser={currentUser}
+        onSaveRecord={onSaveRecord}
+        getStatusLabel={getStatusLabel}
+        renderDecisionPanel={renderDecisionPanel}
+        requiresGoodConduct={requiresGoodConduct}
+        handleSaveStatusChange={handleSaveStatusChange}
+        isChangingStatus={isChangingStatus}
+        setIsChangingStatus={setIsChangingStatus}
+        tempStatus={tempStatus}
+        setTempStatus={setTempStatus}
+        triggerToast={triggerToast}
+      />
 
       {/* CUSTOM CONFIRMATION DIALOG */}
       <AnimatePresence>
