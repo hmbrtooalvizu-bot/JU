@@ -225,49 +225,83 @@ export default function DashboardView({
     // 2. Documentos
     const isStep2Unlocked = true;
     const isStep2DocsUploaded = isDocsComplete;
-    const isStep2Approved = currentUser?.status !== 'pending_approval' && 
-                           currentUser?.status !== 'ready_for_completion' &&
-                           currentUser?.status !== 'documents_pending' && 
-                           currentUser?.status !== 'documents_submitted' &&
-                           currentUser?.status !== 'observed';
-    const step2Status = !isStep2Unlocked 
-      ? 'locked' 
-      : (isStep2Approved ? 'completed' : (isStep2DocsUploaded ? 'reviewing' : 'pending_action'));
+    const isStep2Approved = currentUser?.documentsStatus === 'approved' || 
+                           currentUser?.status === 'documents_verified' || 
+                           (currentUser?.status !== 'pending_approval' && 
+                            currentUser?.status !== 'ready_for_completion' &&
+                            currentUser?.status !== 'documents_pending' && 
+                            currentUser?.status !== 'documents_submitted' &&
+                            currentUser?.status !== 'observed' &&
+                            currentUser?.status !== 'rejected');
+    const isStep2Observed = currentUser?.documentsStatus === 'observed' || currentUser?.status === 'observed';
+    const isStep2Rejected = currentUser?.documentsStatus === 'rejected' || currentUser?.status === 'rejected';
+    const step2Status = isStep2Rejected 
+      ? 'rejected' 
+      : (isStep2Approved 
+        ? 'completed' 
+        : (isStep2Observed 
+          ? 'reviewing' 
+          : (isStep2DocsUploaded ? 'reviewing' : 'pending_action')));
 
     // 3. Pago por Derecho de Admisión
-    const isStep3Unlocked = isStep2Approved;
+    const isStep3Unlocked = isStep2Approved && !isStep2Rejected;
     const isStep3Paid = currentUser?.paymentState === 'paid';
     const isStep3Reviewing = currentUser?.paymentState === 'reviewing';
+    const isStep3Observed = currentUser?.paymentState === 'observed';
     const isStep3Rejected = currentUser?.paymentState === 'rejected';
     const step3Status = !isStep3Unlocked 
       ? 'locked' 
-      : (isStep3Paid ? 'completed' : (isStep3Reviewing ? 'reviewing' : (isStep3Rejected ? 'rejected' : 'pending_action')));
+      : (isStep3Rejected 
+        ? 'rejected' 
+        : (isStep3Paid 
+          ? 'completed' 
+          : (isStep3Observed || isStep3Reviewing ? 'reviewing' : 'pending_action')));
 
     // 4. Cita Psicopedagógica
-    const isStep4Unlocked = isStep3Paid;
+    const isStep4Unlocked = isStep3Paid && isStep3Unlocked && !isStep3Rejected;
     const isStep4Booked = !!currentUser?.appointment;
-    const isStep4Approved = !!currentUser?.appointmentApproved;
+    const isStep4Approved = currentUser?.appointmentApproved || currentUser?.appointmentStatus === 'approved';
+    const isStep4Observed = currentUser?.appointmentStatus === 'observed';
+    const isStep4Rejected = currentUser?.appointmentStatus === 'rejected';
     const step4Status = !isStep4Unlocked 
       ? 'locked' 
-      : (isStep4Approved ? 'completed' : (isStep4Booked ? 'reviewing' : 'pending_action'));
+      : (isStep4Rejected 
+        ? 'rejected' 
+        : (isStep4Approved 
+          ? 'completed' 
+          : (isStep4Observed || isStep4Booked ? 'reviewing' : 'pending_action')));
 
     // 5. Evaluación Académica
     const requiresEval = gradeRequiresEvaluation(currentUser?.formState?.postulacion?.gradoIngreso);
-    const isStep5Unlocked = isStep4Unlocked && isStep4Approved;
+    const isStep5Unlocked = isStep4Approved && isStep4Unlocked && !isStep4Rejected;
     const isStep5Booked = !!currentUser?.academicEvaluation;
-    const isStep5Approved = !requiresEval || !!currentUser?.academicEvaluationApproved;
+    const isStep5Approved = !requiresEval || currentUser?.academicEvaluationApproved || currentUser?.academicEvaluationStatus === 'approved';
+    const isStep5Observed = currentUser?.academicEvaluationStatus === 'observed';
+    const isStep5Rejected = currentUser?.academicEvaluationStatus === 'rejected';
     const step5Status = !requiresEval 
       ? 'not_applicable' 
-      : (!isStep5Unlocked ? 'locked' : (isStep5Approved ? 'completed' : (isStep5Booked ? 'reviewing' : 'pending_action')));
+      : (!isStep5Unlocked 
+        ? 'locked' 
+        : (isStep5Rejected 
+          ? 'rejected' 
+          : (isStep5Approved 
+            ? 'completed' 
+            : (isStep5Observed || isStep5Booked ? 'reviewing' : 'pending_action'))));
 
     // 6. Estado Final
     const isStep6Unlocked = requiresEval 
-      ? (isStep5Unlocked && isStep5Approved) 
-      : (isStep4Unlocked && isStep4Approved);
-    const isAdmittedOrEnrolled = currentUser?.status === 'admitted' || currentUser?.status === 'enrolled' || currentUser?.status === 'matriculado';
+      ? (isStep5Approved && isStep5Unlocked && !isStep5Rejected) 
+      : (isStep4Approved && isStep4Unlocked && !isStep4Rejected);
+    const isStep6Rejected = currentUser?.finalStatus === 'rejected' || currentUser?.status === 'rejected';
+    const isAdmittedOrEnrolled = currentUser?.status === 'admitted' || currentUser?.status === 'enrolled' || currentUser?.status === 'matriculado' || currentUser?.finalStatus === 'approved';
+    const isStep6Observed = currentUser?.finalStatus === 'observed';
     const step6Status = !isStep6Unlocked 
       ? 'locked' 
-      : (isAdmittedOrEnrolled ? 'completed' : 'reviewing');
+      : (isStep6Rejected 
+        ? 'rejected' 
+        : (isAdmittedOrEnrolled 
+          ? 'completed' 
+          : (isStep6Observed ? 'reviewing' : 'reviewing')));
 
     return [
       { id: 1, label: 'Ficha Técnica', status: step1Status, description: 'Datos iniciales del postulante' },
@@ -404,6 +438,9 @@ export default function DashboardView({
     const updatedCurrentUser = {
       ...currentUser,
       documents: currentUserDocs,
+      documentsStatus: undefined,
+      documentsObservation: undefined,
+      documentsRejectedReason: undefined,
       status: currentUser.status === 'documents_pending' || currentUser.status === 'documents_submitted' || currentUser.status === 'observed'
         ? newCurrentUserStatus 
         : currentUser.status
@@ -426,6 +463,9 @@ export default function DashboardView({
         const updatedSibling = {
           ...sibling,
           documents: siblingDocs,
+          documentsStatus: undefined,
+          documentsObservation: undefined,
+          documentsRejectedReason: undefined,
           status: sibling.status === 'documents_pending' || sibling.status === 'documents_submitted' || sibling.status === 'observed'
             ? newSiblingStatus
             : sibling.status
@@ -726,7 +766,9 @@ export default function DashboardView({
               const updated = {
                 ...currentUser,
                 paymentComprobante: file.name,
-                paymentState: 'reviewing',
+                paymentState: 'reviewing' as const,
+                paymentObservation: undefined,
+                paymentRejectedReason: undefined,
                 paymentDate: new Date().toLocaleDateString('es-PE')
               };
               saveRecord(updated);
@@ -747,6 +789,8 @@ export default function DashboardView({
       ...currentUser,
       paymentComprobante: undefined,
       paymentState: undefined,
+      paymentObservation: undefined,
+      paymentRejectedReason: undefined,
       paymentDate: undefined
     };
     saveRecord(updated);
@@ -765,6 +809,9 @@ export default function DashboardView({
         dateLabel,
         timeSlot: slot
       },
+      appointmentStatus: undefined,
+      appointmentObservation: undefined,
+      appointmentRejectedReason: undefined,
       status: currentUser.status === 'documents_verified' || currentUser.status === 'documents_pending' || currentUser.status === 'appointment_pending'
         ? 'interview_scheduled' 
         : currentUser.status
@@ -779,6 +826,9 @@ export default function DashboardView({
     const updatedRecord = {
       ...currentUser,
       appointment: null,
+      appointmentStatus: undefined,
+      appointmentObservation: undefined,
+      appointmentRejectedReason: undefined,
       status: currentUser.status === 'interview_scheduled' ? 'documents_verified' : currentUser.status
     };
 
@@ -797,6 +847,9 @@ export default function DashboardView({
         dateLabel,
         timeSlot: slot
       },
+      academicEvaluationStatus: undefined,
+      academicEvaluationObservation: undefined,
+      academicEvaluationRejectedReason: undefined,
       academicEvaluationApproved: false
     };
 
@@ -809,6 +862,9 @@ export default function DashboardView({
     const updatedRecord = {
       ...currentUser,
       academicEvaluation: null,
+      academicEvaluationStatus: undefined,
+      academicEvaluationObservation: undefined,
+      academicEvaluationRejectedReason: undefined,
       academicEvaluationApproved: false
     };
 
@@ -875,6 +931,66 @@ export default function DashboardView({
     const credText = `Portal Admisión Juventud Científica 2027\nUsuario: ${currentUser.username}\nContraseña: ${currentUser.password}`;
     navigator.clipboard.writeText(credText);
     triggerToast("📋 Datos de acceso copiados al portapapeles.");
+  };
+
+  const renderStageAlert = (
+    status: 'approved' | 'observed' | 'rejected' | undefined,
+    observation: string | undefined,
+    rejectedReason: string | undefined,
+    reviewedBy: string | undefined,
+    reviewedAt: string | undefined,
+    stageName: string
+  ) => {
+    if (status === 'observed' && observation) {
+      return (
+        <div className="bg-amber-50 border-2 border-amber-200 p-4 rounded-2xl flex items-start gap-3.5 text-xs text-amber-900 mb-4 animate-fade-in no-print">
+          <div className="bg-amber-500 text-white p-1.5 rounded-lg shrink-0">
+            <AlertCircle className="w-5 h-5" />
+          </div>
+          <div className="space-y-1 flex-1">
+            <strong className="font-extrabold uppercase tracking-wide block text-amber-900">⚠️ ETAPA CON OBSERVACIONES</strong>
+            <p className="font-medium text-slate-700 mt-1">
+              La etapa <strong>{stageName}</strong> ha sido revisada por la institución y presenta la siguiente observación que debe ser corregida para continuar:
+            </p>
+            <div className="bg-white border border-amber-200 p-3 rounded-xl font-bold mt-2 text-amber-950 italic">
+              "{observation}"
+            </div>
+            {reviewedBy && (
+              <p className="text-[10px] text-amber-600 font-semibold mt-1">
+                Revisado por: {reviewedBy} {reviewedAt ? `el ${reviewedAt}` : ''}
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    }
+    if (status === 'rejected' && rejectedReason) {
+      return (
+        <div className="bg-rose-50 border-2 border-rose-200 p-4 rounded-2xl flex items-start gap-3.5 text-xs text-rose-900 mb-4 animate-fade-in no-print">
+          <div className="bg-rose-500 text-white p-1.5 rounded-lg shrink-0">
+            <X className="w-5 h-5" />
+          </div>
+          <div className="space-y-1 flex-1">
+            <strong className="font-extrabold uppercase tracking-wide block text-rose-800">❌ ETAPA RECHAZADA</strong>
+            <p className="font-medium text-slate-700 mt-1">
+              Lo sentimos, el proceso de admisión ha sido <strong>Rechazado</strong> en la etapa de <strong>{stageName}</strong> debido al siguiente motivo:
+            </p>
+            <div className="bg-white border border-rose-200 p-3 rounded-xl font-bold mt-2 text-rose-950 italic">
+              "{rejectedReason}"
+            </div>
+            {reviewedBy && (
+              <p className="text-[10px] text-rose-600 font-semibold mt-1">
+                Rechazado por: {reviewedBy} {reviewedAt ? `el ${reviewedAt}` : ''}
+              </p>
+            )}
+            <p className="text-[11px] font-bold text-rose-700 mt-2">
+              El proceso de admisión para esta postulación ha finalizado. No es posible continuar con las siguientes etapas.
+            </p>
+          </div>
+        </div>
+      );
+    }
+    return null;
   };
 
   return (
@@ -1871,6 +1987,14 @@ export default function DashboardView({
 
         {selectedStepId === 2 && (
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
+            {renderStageAlert(
+              currentUser.documentsStatus,
+              currentUser.documentsObservation,
+              currentUser.documentsRejectedReason,
+              currentUser.documentsReviewedBy,
+              currentUser.documentsReviewedAt,
+              'Carga de Documentos'
+            )}
             <div>
               <h3 className="text-base font-extrabold text-slate-900 uppercase">Carga de Documentación Obligatoria</h3>
               <p className="text-xs text-slate-500">Suba los archivos escaneados o fotografías legibles para que la Comisión verifique su expediente.</p>
@@ -2227,6 +2351,14 @@ export default function DashboardView({
 
         {selectedStepId === 3 && (
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
+            {renderStageAlert(
+              currentUser.paymentState === 'observed' ? 'observed' : currentUser.paymentState === 'rejected' ? 'rejected' : undefined,
+              currentUser.paymentObservation,
+              currentUser.paymentRejectedReason,
+              currentUser.paymentReviewedBy,
+              currentUser.paymentReviewedAt,
+              'Pago de Derecho de Admisión'
+            )}
             <div>
               <h3 className="text-base font-extrabold text-slate-900 uppercase">Pago por Derecho de Admisión 2027</h3>
               <p className="text-xs text-slate-500">
@@ -2383,6 +2515,14 @@ export default function DashboardView({
 
         {selectedStepId === 4 && (
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
+            {renderStageAlert(
+              currentUser.appointmentStatus,
+              currentUser.appointmentObservation,
+              currentUser.appointmentRejectedReason,
+              currentUser.appointmentReviewedBy,
+              currentUser.appointmentReviewedAt,
+              'Cita Psicopedagógica'
+            )}
             <div>
               <h3 className="text-base font-extrabold text-slate-900 uppercase">Reserva de Cita Psicopedagógica</h3>
               <p className="text-xs text-slate-500">
@@ -2511,6 +2651,14 @@ export default function DashboardView({
 
         {selectedStepId === 5 && (
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
+            {renderStageAlert(
+              currentUser.academicEvaluationStatus,
+              currentUser.academicEvaluationObservation,
+              currentUser.academicEvaluationRejectedReason,
+              currentUser.academicEvaluationReviewedBy,
+              currentUser.academicEvaluationReviewedAt,
+              'Evaluación Académica'
+            )}
             <div>
               <h3 className="text-base font-extrabold text-slate-900 uppercase">Evaluación Académica 2027</h3>
               <p className="text-xs text-slate-500">
@@ -2644,6 +2792,14 @@ export default function DashboardView({
 
         {selectedStepId === 6 && (
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
+            {renderStageAlert(
+              currentUser.finalStatus,
+              currentUser.finalStatusObservation,
+              currentUser.finalStatusRejectedReason,
+              currentUser.finalStatusReviewedBy,
+              currentUser.finalStatusReviewedAt,
+              'Estado Final de Admisión'
+            )}
             <div>
               <h3 className="text-base font-extrabold text-slate-900 uppercase">Estado Final & Asignación de Aula</h3>
               <p className="text-xs text-slate-500">Último paso del proceso de admisión. Inscriba formalmente al alumno y reciba su asignación de aula.</p>

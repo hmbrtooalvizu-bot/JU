@@ -323,6 +323,11 @@ export default function AdminDashboardView({
     onConfirm: () => void;
   } | null>(null);
 
+  // Administrative stages approval/observed/reject states
+  const [activeInputStage, setActiveInputStage] = useState<string | null>(null);
+  const [inputType, setInputType] = useState<'observation' | 'rejection' | null>(null);
+  const [reasonText, setReasonText] = useState('');
+
   // Drag and drop states for columns
   const [draggedDistrictIndex, setDraggedDistrictIndex] = useState<number | null>(null);
   const [draggedSedeIndex, setDraggedSedeIndex] = useState<number | null>(null);
@@ -1348,6 +1353,153 @@ export default function AdminDashboardView({
     setSelectedApplicant(updated);
     setIsChangingStatus(false);
     triggerToast("✨ Estado de postulación actualizado y guardado.");
+  };
+
+  const renderDecisionPanel = (
+    stageKey: 'documents' | 'payment' | 'appointment' | 'academic' | 'final',
+    currentStatus: 'approved' | 'observed' | 'rejected' | 'pending' | undefined,
+    observation: string | undefined,
+    rejectedReason: string | undefined,
+    reviewedBy: string | undefined,
+    reviewedAt: string | undefined,
+    onApprove: () => void,
+    onObserve: (reason: string) => void,
+    onReject: (reason: string) => void,
+    stageLabel: string
+  ) => {
+    const hasReviewPermission = hasPermission('Aprobar ficha') || hasPermission('Rechazar ficha') || hasPermission('Editar ficha');
+
+    if (!hasReviewPermission) {
+      return (
+        <div className="bg-slate-100 p-3 rounded-xl border border-slate-200/80 text-[11px] text-slate-500 italic">
+          🔒 No tiene permisos de revisión y aprobación para esta etapa.
+        </div>
+      );
+    }
+
+    const isThisActive = activeInputStage === stageKey;
+
+    return (
+      <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3 mt-2">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div className="space-y-0.5">
+            <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400">Panel de Decisión Administrativa</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-slate-700">Estado de {stageLabel}:</span>
+              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                currentStatus === 'approved' ? 'bg-green-100 text-green-800' :
+                currentStatus === 'observed' ? 'bg-amber-100 text-amber-800' :
+                currentStatus === 'rejected' ? 'bg-rose-100 text-rose-800' :
+                'bg-slate-100 text-slate-600'
+              }`}>
+                {currentStatus === 'approved' ? 'Aprobado ✓' :
+                 currentStatus === 'observed' ? 'Observado ⚠️' :
+                 currentStatus === 'rejected' ? 'Rechazado ❌' :
+                 'Pendiente de Revisión'}
+              </span>
+            </div>
+            {(observation || rejectedReason) && (
+              <p className="text-[10px] text-slate-500 mt-1 leading-normal italic bg-slate-50 p-2 rounded-lg border">
+                <strong>{observation ? 'Observación: ' : 'Motivo Rechazo: '}</strong>
+                "{observation || rejectedReason}"
+                {reviewedBy && <span className="block text-[8px] text-slate-400 mt-0.5 font-sans">Por: {reviewedBy} {reviewedAt ? `el ${reviewedAt}` : ''}</span>}
+              </p>
+            )}
+          </div>
+
+          {!isThisActive && (
+            <div className="flex flex-wrap gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveInputStage(null);
+                  setInputType(null);
+                  setReasonText('');
+                  onApprove();
+                }}
+                className="bg-green-600 hover:bg-green-700 text-white font-extrabold py-1 px-3 rounded-lg text-xs transition cursor-pointer hover:scale-101 active:scale-95 flex items-center gap-1 shadow-xs"
+              >
+                ✓ Aprobar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveInputStage(stageKey);
+                  setInputType('observation');
+                  setReasonText(observation || '');
+                }}
+                className="bg-amber-500 hover:bg-amber-600 text-white font-extrabold py-1 px-3 rounded-lg text-xs transition cursor-pointer hover:scale-101 active:scale-95 flex items-center gap-1 shadow-xs"
+              >
+                ⚠️ Observar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveInputStage(stageKey);
+                  setInputType('rejection');
+                  setReasonText(rejectedReason || '');
+                }}
+                className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold py-1 px-3 rounded-lg text-xs transition cursor-pointer hover:scale-101 active:scale-95 flex items-center gap-1 shadow-xs"
+              >
+                ❌ Rechazar
+              </button>
+            </div>
+          )}
+        </div>
+
+        {isThisActive && inputType && (
+          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2.5 animate-fade-in">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+              {inputType === 'observation' ? 'Motivo de la observación *' : 'Motivo del rechazo *'}
+            </label>
+            <textarea
+              rows={2}
+              value={reasonText}
+              onChange={(e) => setReasonText(e.target.value)}
+              placeholder={inputType === 'observation' 
+                ? 'Escriba de forma clara y detallada qué documento o dato falta o debe corregirse...' 
+                : 'Escriba el motivo institucional por el cual se rechaza permanentemente esta etapa...'}
+              className="w-full p-2 text-xs border border-slate-300 rounded-lg bg-white text-slate-800 font-medium focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveInputStage(null);
+                  setInputType(null);
+                  setReasonText('');
+                }}
+                className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-xs transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!reasonText.trim()}
+                onClick={() => {
+                  const trimmed = reasonText.trim();
+                  setActiveInputStage(null);
+                  setInputType(null);
+                  setReasonText('');
+                  if (inputType === 'observation') {
+                    onObserve(trimmed);
+                  } else {
+                    onReject(trimmed);
+                  }
+                }}
+                className={`px-3 py-1 text-white font-black rounded-lg text-xs transition cursor-pointer shadow-xs ${
+                  reasonText.trim() 
+                    ? (inputType === 'observation' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700')
+                    : 'bg-slate-300 cursor-not-allowed text-slate-400'
+                }`}
+              >
+                Guardar Cambios
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   // Human friendly label for statuses
@@ -3857,6 +4009,69 @@ export default function AdminDashboardView({
                     </div>
                   </div>
                 </div>
+
+                {renderDecisionPanel(
+                  'documents',
+                  selectedApplicant.documentsStatus || (selectedApplicant.status === 'documents_verified' ? 'approved' : selectedApplicant.status === 'observed' ? 'observed' : selectedApplicant.status === 'rejected' ? 'rejected' : undefined),
+                  selectedApplicant.documentsObservation,
+                  selectedApplicant.documentsRejectedReason,
+                  selectedApplicant.documentsReviewedBy,
+                  selectedApplicant.documentsReviewedAt,
+                  () => {
+                    const updated: AdmissionRecord = {
+                      ...selectedApplicant,
+                      documentsStatus: 'approved',
+                      status: 'documents_verified',
+                      documentsReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                      documentsReviewedAt: new Date().toLocaleString('es-PE')
+                    };
+                    onSaveRecord(updated);
+                    setSelectedApplicant(updated);
+                    addAuditLog(
+                      'Aprobación de Documentos',
+                      `Documentación del expediente de ${selectedApplicant.formState.personales.nombres} aprobada con éxito.`,
+                      selectedApplicant.id
+                    );
+                    triggerToast("✅ Documentos aprobados con éxito. Se habilitó la siguiente etapa.");
+                  },
+                  (reason) => {
+                    const updated: AdmissionRecord = {
+                      ...selectedApplicant,
+                      documentsStatus: 'observed',
+                      documentsObservation: reason,
+                      status: 'observed',
+                      documentsReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                      documentsReviewedAt: new Date().toLocaleString('es-PE')
+                    };
+                    onSaveRecord(updated);
+                    setSelectedApplicant(updated);
+                    addAuditLog(
+                      'Observación de Documentos',
+                      `Documentación observada: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
+                      selectedApplicant.id
+                    );
+                    triggerToast("⚠️ Documentos marcados como Observados.");
+                  },
+                  (reason) => {
+                    const updated: AdmissionRecord = {
+                      ...selectedApplicant,
+                      documentsStatus: 'rejected',
+                      documentsRejectedReason: reason,
+                      status: 'rejected',
+                      documentsReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                      documentsReviewedAt: new Date().toLocaleString('es-PE')
+                    };
+                    onSaveRecord(updated);
+                    setSelectedApplicant(updated);
+                    addAuditLog(
+                      'Rechazo de Documentos',
+                      `Documentación rechazada permanentemente: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
+                      selectedApplicant.id
+                    );
+                    triggerToast("❌ Documentación rechazada de forma permanente.");
+                  },
+                  'Documentos'
+                )}
 
                 {/* Sede y Salón (Reemplaza Pabellón y Aula) */}
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2">

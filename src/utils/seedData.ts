@@ -4,8 +4,8 @@ export interface AdmissionRecord {
   id: string;
   username: string;
   password: string;
-  status: 'documents_pending' | 'documents_submitted' | 'documents_verified' | 'interview_scheduled' | 'interview_completed' | 'admitted' | 'enrolled' | 'observed' | 'waiting_list';
-  paymentState: 'pending' | 'reviewing' | 'paid' | 'rejected';
+  status: 'documents_pending' | 'documents_submitted' | 'documents_verified' | 'interview_scheduled' | 'interview_completed' | 'admitted' | 'enrolled' | 'observed' | 'waiting_list' | 'rejected';
+  paymentState: 'pending' | 'reviewing' | 'paid' | 'rejected' | 'observed';
   paymentAmount: number;
   paymentDate?: string;
   paymentCode?: string;
@@ -36,6 +36,36 @@ export interface AdmissionRecord {
   formState: FormState;
   createdAt: string;
   isDeleted?: boolean; // For soft deletion audit trail
+
+  // Custom stage approvals & reasons
+  documentsStatus?: 'approved' | 'observed' | 'rejected';
+  documentsObservation?: string;
+  documentsRejectedReason?: string;
+  documentsReviewedBy?: string;
+  documentsReviewedAt?: string;
+
+  paymentObservation?: string;
+  paymentRejectedReason?: string;
+  paymentReviewedBy?: string;
+  paymentReviewedAt?: string;
+
+  appointmentStatus?: 'approved' | 'observed' | 'rejected';
+  appointmentObservation?: string;
+  appointmentRejectedReason?: string;
+  appointmentReviewedBy?: string;
+  appointmentReviewedAt?: string;
+
+  academicEvaluationStatus?: 'approved' | 'observed' | 'rejected';
+  academicEvaluationObservation?: string;
+  academicEvaluationRejectedReason?: string;
+  academicEvaluationReviewedBy?: string;
+  academicEvaluationReviewedAt?: string;
+
+  finalStatus?: 'approved' | 'observed' | 'rejected';
+  finalStatusObservation?: string;
+  finalStatusRejectedReason?: string;
+  finalStatusReviewedBy?: string;
+  finalStatusReviewedAt?: string;
 }
 
 export interface AuditLogEntry {
