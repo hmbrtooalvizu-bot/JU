@@ -180,7 +180,7 @@ export default function AdminDashboardView({
   };
 
   // Navigation tabs within Admin Dashboard
-  const [activeTab, setActiveTab] = useState<'applicants' | 'appointments' | 'users' | 'branches_districts' | 'reports'>('applicants');
+  const [activeTab, setActiveTab] = useState<'applicants' | 'appointments' | 'users' | 'branches_districts' | 'reports' | 'admission_fee_config'>('applicants');
 
   // Visible metrics customization states
   const [isCustomizingDashboard, setIsCustomizingDashboard] = useState(false);
@@ -417,17 +417,21 @@ export default function AdminDashboardView({
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           // Check that it only contains our valid keys
-          const validKeys = ['applicants', 'reports', 'branches_districts', 'users'];
+          const validKeys = ['applicants', 'reports', 'branches_districts', 'admission_fee_config', 'users'];
           const filtered = parsed.filter(key => validKeys.includes(key));
-          if (filtered.length === validKeys.length) {
-            return filtered;
-          }
+          const finalKeys = [...filtered];
+          validKeys.forEach(k => {
+            if (!finalKeys.includes(k)) {
+              finalKeys.push(k);
+            }
+          });
+          return finalKeys;
         }
       } catch (e) {
         // Ignore parsing errors
       }
     }
-    return ['applicants', 'reports', 'branches_districts', 'users'];
+    return ['applicants', 'reports', 'branches_districts', 'admission_fee_config', 'users'];
   });
 
   // Save menu order automatically
@@ -1654,6 +1658,14 @@ export default function AdminDashboardView({
           hasPerm: hasPermission('Administrar sedes') || hasPermission('Configuración del sistema'),
           onClick: () => setActiveTab('branches_districts')
         };
+      case 'admission_fee_config':
+        return {
+          id: 'admission_fee_config',
+          label: 'Configuración del Derecho de Admisión',
+          icon: CreditCard,
+          hasPerm: hasPermission('Configuración del sistema'),
+          onClick: () => setActiveTab('admission_fee_config')
+        };
       case 'users':
         return {
           id: 'users',
@@ -2028,47 +2040,43 @@ export default function AdminDashboardView({
         {/* RIGHT COLUMN: Active tab layout, info and action buttons */}
         <main className={`${isCollapsed ? 'lg:col-span-11' : 'lg:col-span-9'} col-span-12 space-y-6 transition-all duration-300`}>
           {/* Top Bar with actions */}
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="bg-amber-100 text-amber-900 text-[10px] font-bold px-2.5 py-1 rounded-full border border-amber-200 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                  Admisión 2027
-                </span>
+          {activeTab === 'reports' && (
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="bg-amber-100 text-amber-900 text-[10px] font-bold px-2.5 py-1 rounded-full border border-amber-200 flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                    Admisión 2027
+                  </span>
+                </div>
+                <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight uppercase">
+                  Reportes & Distribución Geográfica
+                </h2>
+                <p className="text-xs text-slate-500 max-w-2xl">
+                  Métricas de matrícula, distribución geográfica por distritos, y estado financiero de recaudación por derecho de admisión.
+                </p>
               </div>
-              <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight uppercase">
-                {activeTab === 'applicants' && "Gestión de Expedientes"}
-                {activeTab === 'reports' && "Reportes & Distribución Geográfica"}
-                {activeTab === 'branches_districts' && "Sedes, Distritos y Grados"}
-                {activeTab === 'users' && "Gestión de Usuarios y Permisos"}
-              </h2>
-              <p className="text-xs text-slate-500 max-w-2xl">
-                {activeTab === 'applicants' && "Supervise las fichas de postulación, verifique los documentos cargados, gestione citas psicopedagógicas y asigne vacantes oficiales."}
-                {activeTab === 'reports' && "Métricas de matrícula, distribución geográfica por distritos, y estado financiero de recaudación por derecho de admisión."}
-                {activeTab === 'branches_districts' && "Configure los distritos habilitados, cree nuevas sedes físicas escolares y administre los grados escolares correspondientes."}
-                {activeTab === 'users' && "Consola administrativa para crear personal, configurar roles (Super Admin, Administrador de Sede, Operador) y otorgar permisos granulares."}
-              </p>
-            </div>
 
-            {hasPermission('Exportar reportes') && activeTab === 'reports' && (
-              <div className="flex flex-wrap gap-2 shrink-0 w-full md:w-auto">
-                <button
-                  onClick={exportReportsPDF}
-                  className="flex-1 md:flex-none bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold py-2 px-3.5 rounded-xl transition text-xs border border-indigo-200 flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Reporte PDF</span>
-                </button>
-                <button
-                  onClick={exportToExcel}
-                  className="flex-1 md:flex-none bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold py-2 px-3.5 rounded-xl transition text-xs border border-emerald-200 flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>Exportar Excel</span>
-                </button>
-              </div>
-            )}
-          </div>
+              {hasPermission('Exportar reportes') && (
+                <div className="flex flex-wrap gap-2 shrink-0 w-full md:w-auto">
+                  <button
+                    onClick={exportReportsPDF}
+                    className="flex-1 md:flex-none bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold py-2 px-3.5 rounded-xl transition text-xs border border-indigo-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Reporte PDF</span>
+                  </button>
+                  <button
+                    onClick={exportToExcel}
+                    className="flex-1 md:flex-none bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold py-2 px-3.5 rounded-xl transition text-xs border border-emerald-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Exportar Excel</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Main Dashboard Indicators Section */}
           {hasPermission('Ver estadísticas') && activeTab === 'reports' && (
@@ -3314,75 +3322,95 @@ export default function AdminDashboardView({
 
               </div>
 
-              {/* CONFIGURACIÓN DEL DERECHO DE ADMISIÓN */}
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-                <div className="flex items-center gap-2 border-b pb-3">
-                  <div className="p-1.5 bg-blue-100 text-slate-800 rounded-lg">
-                    <CreditCard className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-black uppercase text-slate-800 tracking-wider">
-                      Configuración del Derecho de Admisión
-                    </h4>
-                    <p className="text-xs text-slate-400">Establezca el importe requerido para el Pago por Derecho de Admisión.</p>
-                  </div>
-                </div>
+            </motion.div>
+          ))}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-                  {/* Monto Input */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-700 block">
-                      Monto del Derecho de Admisión (S/.)
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">S/.</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        disabled={!hasPermission('Configuración del sistema')}
-                        value={tempAdmissionFee}
-                        onChange={(e) => setTempAdmissionFee(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
-                      />
+          {/* TAB 3.5: CONFIGURACIÓN DEL DERECHO DE ADMISIÓN */}
+          {activeTab === 'admission_fee_config' && (
+            !hasPermission('Configuración del sistema') ? (
+              <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-3">
+                <ShieldAlert className="w-12 h-12 text-red-500 mx-auto" />
+                <h3 className="text-base font-black text-slate-900 uppercase">Acceso Restringido</h3>
+                <p className="text-xs text-slate-500">No cuenta con el permiso requerido ("Configuración del sistema") para visualizar este módulo.</p>
+              </div>
+            ) : (
+              <motion.div
+                key="admission_fee_config"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {/* CONFIGURACIÓN DEL DERECHO DE ADMISIÓN */}
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="flex items-center gap-2 border-b pb-3">
+                    <div className="p-1.5 bg-blue-100 text-slate-800 rounded-lg">
+                      <CreditCard className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black uppercase text-slate-800 tracking-wider">
+                        Configuración del Derecho de Admisión
+                      </h4>
+                      <p className="text-xs text-slate-400">Establezca el importe requerido para el Pago por Derecho de Admisión.</p>
                     </div>
                   </div>
 
-                  {/* Estado Select */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-700 block">
-                      Estado del Derecho de Admisión
-                    </label>
-                    <select
-                      disabled={!hasPermission('Configuración del sistema')}
-                      value={tempFeeActive ? 'active' : 'inactive'}
-                      onChange={(e) => setTempFeeActive(e.target.value === 'active')}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
-                    >
-                      <option value="active">Activo</option>
-                      <option value="inactive">Inactivo</option>
-                    </select>
-                  </div>
-                </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                    {/* Monto Input */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-700 block">
+                        Monto del Derecho de Admisión (S/.)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">S/.</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          disabled={!hasPermission('Configuración del sistema')}
+                          value={tempAdmissionFee}
+                          onChange={(e) => setTempAdmissionFee(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
 
-                {hasPermission('Configuración del sistema') ? (
-                  <div className="flex justify-end pt-2">
-                    <button
-                      type="button"
-                      onClick={handleSaveAdmissionFeeConfig}
-                      className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-xl text-xs transition duration-150 shadow-sm cursor-pointer"
-                    >
-                      Guardar Configuración
-                    </button>
+                    {/* Estado Select */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-700 block">
+                        Estado del Derecho de Admisión
+                      </label>
+                      <select
+                        disabled={!hasPermission('Configuración del sistema')}
+                        value={tempFeeActive ? 'active' : 'inactive'}
+                        onChange={(e) => setTempFeeActive(e.target.value === 'active')}
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      >
+                        <option value="active">Activo</option>
+                        <option value="inactive">Inactivo</option>
+                      </select>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-[10px] text-slate-500 italic mt-2">
-                    * Solo los usuarios con permisos de administración ("Configuración del sistema") pueden modificar estos valores. Los demás usuarios únicamente pueden visualizarlos.
-                  </p>
-                )}
-              </div>
-            </motion.div>
-          ))}
+
+                  {hasPermission('Configuración del sistema') ? (
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveAdmissionFeeConfig}
+                        className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-xl text-xs transition duration-150 shadow-sm cursor-pointer"
+                      >
+                        Guardar Configuración
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-500 italic mt-2">
+                      * Solo los usuarios con permisos de administración ("Configuración del sistema") pueden modificar estos valores. Los demás usuarios únicamente pueden visualizarlos.
+                    </p>
+                  )}
+                </div>
+              </motion.div>
+            )
+          )}
 
           {/* TAB 4: GESTIÓN DE USUARIOS Y PERMISOS */}
           {activeTab === 'users' && (
