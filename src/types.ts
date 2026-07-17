@@ -37,6 +37,9 @@ export interface LugarAdicionalesData {
   iglesiaParroquia: string;
   bautizado: boolean;
   primeraComunion: boolean;
+  asisteIglesia?: 'Si' | 'No' | '';
+  tieneDiagnostico?: 'Si' | 'No' | '';
+  diagnosticoDetalle?: string;
 }
 
 export interface FichaFamiliaData {

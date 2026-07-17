@@ -60,7 +60,10 @@ export const initialFormState: FormState = {
     religion: '',
     iglesiaParroquia: '',
     bautizado: false,
-    primeraComunion: false
+    primeraComunion: false,
+    asisteIglesia: '',
+    tieneDiagnostico: '',
+    diagnosticoDetalle: ''
   },
   fichaFamilia: {
     codigoFamilia: 'FAM-3209',
@@ -77,6 +80,11 @@ export const initialFormState: FormState = {
   padresTutores: {
     papa: initialFamiliar('Papá'),
     mama: initialFamiliar('Mamá'),
-    apoderado: initialFamiliar('Apoderado')
+    apoderado: {
+      ...initialFamiliar('Apoderado'),
+      departamento: '',
+      provincia: '',
+      distrito: ''
+    }
   }
 };

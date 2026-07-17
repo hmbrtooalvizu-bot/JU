@@ -67,21 +67,7 @@ import {
   DEFAULT_SEDE_ADDRESSES
 } from './data';
 
-const DEPARTAMENTO_PROVINCIA_MAP: Record<string, string[]> = {
-  "Lima": ["Lima"],
-  "Cusco": ["Cusco"],
-  "Arequipa": ["Arequipa"],
-  "La Libertad": ["Trujillo"],
-  "Piura": ["Piura"]
-};
-
-const PROVINCIA_DISTRITO_MAP: Record<string, string[]> = {
-  "Lima": ["El Agustino", "San Isidro", "Miraflores", "San Juan de Lurigancho", "Villa María del Triunfo", "Lurín", "Otro"],
-  "Cusco": ["Cusco", "San Sebastián", "Wanchaq", "Otro"],
-  "Arequipa": ["Arequipa", "Cayma", "Yanahuara", "Otro"],
-  "Trujillo": ["Trujillo", "Víctor Larco Herrera", "El Porvenir", "Otro"],
-  "Piura": ["Piura", "Castilla", "Catacaos", "Otro"]
-};
+import { getDepartamentos, getProvincias, getDistritos } from './utils/ubigeo';
 
 function generateNextFamilyCode(existingRecords: any[]): string {
   const activeFamilyCodes = new Set<string>();
@@ -1132,287 +1118,631 @@ export default function App() {
                   {/* PASO 3 (Ficha Simplificada) o PASO 2 (Ficha Completa): DATOS PERSONALES DEL POSTULANTE */}
                   {((isFormSimple && currentStep === 3) || (!isFormSimple && currentStep === 2)) && (
                     isFormSimple ? (
-                      <div className="space-y-6">
-                        <div className="bg-blue-50 border border-blue-100 p-5 rounded-2xl mb-6">
+                      <div className="space-y-4">
+                        {/* HEADER */}
+                        <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl">
                           <h4 className="text-sm font-bold text-blue-900 uppercase tracking-tight flex items-center gap-1.5">
                             <User className="w-5 h-5 text-blue-700" />
                             Datos Personales del Postulante
                           </h4>
-                          <p className="text-xs text-blue-800 mt-1.5 leading-relaxed">
+                          <p className="text-xs text-blue-800 mt-1 leading-relaxed">
                             Ingrese los datos del alumno postulante. Al escribir un DNI registrado, el sistema completará sus datos automáticamente. De lo contrario, rellene los campos manualmente.
                           </p>
                         </div>
 
-                        {/* ROW 1: DOCUMENTO DE IDENTIDAD */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 border-b border-slate-100 pb-5">
-                          {/* Tipo Documento */}
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Tipo de Documento <span className="text-red-500">*</span></label>
-                            <select
-                              value={formState.personales.tipoDocumento}
-                              onChange={(e) => {
-                                setFormState(prev => ({
-                                  ...prev,
-                                  personales: { ...prev.personales, tipoDocumento: e.target.value }
-                                }));
-                                clearFieldError('tipoDocumento');
-                              }}
-                              className="w-full rounded-lg border border-slate-300 shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-                            >
-                              <option value="DNI">DNI</option>
-                              <option value="Carnet de Extranjería">Carnet de Extranjería</option>
-                              <option value="Pasaporte">Pasaporte</option>
-                            </select>
-                          </div>
-
-                          {/* Numero Documento */}
-                          <div className="md:col-span-2">
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Número de Documento (DNI) <span className="text-red-500">*</span></label>
-                            <input 
-                              type="text"
-                              maxLength={12}
-                              value={formState.personales.numeroDocumento}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setFormState(prev => {
-                                  const updated = {
+                        {/* SECCIÓN 1: INFORMACIÓN PERSONAL */}
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                          <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-100">
+                            1. Información Personal
+                          </h5>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                            {/* Tipo Documento */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Tipo de Documento <span className="text-red-500">*</span></label>
+                              <select
+                                value={formState.personales.tipoDocumento}
+                                onChange={(e) => {
+                                  setFormState(prev => ({
                                     ...prev,
-                                    personales: { ...prev.personales, numeroDocumento: val }
-                                  };
+                                    personales: { ...prev.personales, tipoDocumento: e.target.value }
+                                  }));
+                                  clearFieldError('tipoDocumento');
+                                }}
+                                className="w-full rounded-lg border border-slate-300 shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                              >
+                                <option value="DNI">DNI</option>
+                                <option value="Carnet de Extranjería">Carnet de Extranjería</option>
+                                <option value="Pasaporte">Pasaporte</option>
+                              </select>
+                            </div>
 
-                                  if (val.length >= 8) {
-                                    const match = records.find(r => 
-                                      r.formState?.personales?.numeroDocumento === val
-                                    );
+                            {/* Numero Documento */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Número de Documento <span className="text-red-500">*</span></label>
+                              <input 
+                                type="text"
+                                maxLength={12}
+                                value={formState.personales.numeroDocumento}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setFormState(prev => {
+                                    const updated = {
+                                      ...prev,
+                                      personales: { ...prev.personales, numeroDocumento: val }
+                                    };
 
-                                    if (match) {
-                                      const p = match.formState.personales;
-                                      updated.personales = {
-                                        ...updated.personales,
-                                        nombres: p.nombres || '',
-                                        apellidoPaterno: p.apellidoPaterno || '',
-                                        apellidoMaterno: p.apellidoMaterno || '',
-                                        genero: p.genero || 'Masculino',
-                                        fechaNacimiento: p.fechaNacimiento || '',
-                                        celularContacto: p.celularContacto || '',
-                                        tipoColegioProcedencia: p.tipoColegioProcedencia || 'Colegio Particular',
-                                        colegioProcedencia: p.colegioProcedencia || '',
-                                        nivelGradoProcedencia: p.nivelGradoProcedencia || ''
-                                      };
-                                      setTimeout(() => {
-                                        clearFieldError('nombres');
-                                        clearFieldError('apellidoPaterno');
-                                        clearFieldError('apellidoMaterno');
-                                        clearFieldError('fechaNacimiento');
-                                      }, 0);
+                                    if (val.length >= 8) {
+                                      const match = records.find(r => 
+                                        r.formState?.personales?.numeroDocumento === val
+                                      );
+
+                                      if (match) {
+                                        const p = match.formState.personales;
+                                        updated.personales = {
+                                          ...updated.personales,
+                                          nombres: p.nombres || '',
+                                          apellidoPaterno: p.apellidoPaterno || '',
+                                          apellidoMaterno: p.apellidoMaterno || '',
+                                          genero: p.genero || 'Masculino',
+                                          fechaNacimiento: p.fechaNacimiento || '',
+                                          celularContacto: p.celularContacto || '',
+                                          tipoColegioProcedencia: p.tipoColegioProcedencia || 'Colegio Particular',
+                                          colegioProcedencia: p.colegioProcedencia || '',
+                                          nivelGradoProcedencia: p.nivelGradoProcedencia || ''
+                                        };
+                                        setTimeout(() => {
+                                          clearFieldError('nombres');
+                                          clearFieldError('apellidoPaterno');
+                                          clearFieldError('apellidoMaterno');
+                                          clearFieldError('fechaNacimiento');
+                                        }, 0);
+                                      }
                                     }
-                                  }
-                                  return updated;
-                                });
-                                clearFieldError('numeroDocumento');
-                              }}
-                              placeholder="Ej. 45678912"
-                              className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                errors.numeroDocumento ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                              }`}
-                            />
-                            {/* Autocomplete notification */}
-                            {formState.personales.numeroDocumento.length >= 8 && records.some(r => 
-                              r.formState?.personales?.numeroDocumento === formState.personales.numeroDocumento
-                            ) && (
-                              <p className="text-xs text-green-600 mt-1.5 flex items-center gap-1 font-semibold">
-                                <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                                ✔ Postulante registrado. ¡Datos completados automáticamente!
-                              </p>
-                            )}
-                            {errors.numeroDocumento && (
-                              <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                {errors.numeroDocumento}
-                              </p>
-                            )}
+                                    return updated;
+                                  });
+                                  clearFieldError('numeroDocumento');
+                                }}
+                                placeholder="Ej. 45678912"
+                                className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                  errors.numeroDocumento ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                }`}
+                              />
+                              {formState.personales.numeroDocumento.length >= 8 && records.some(r => 
+                                r.formState?.personales?.numeroDocumento === formState.personales.numeroDocumento
+                              ) && (
+                                <p className="text-xs text-green-600 mt-1 flex items-center gap-1 font-semibold">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                                  ✔ Registrado. ¡Autocompletado!
+                                </p>
+                              )}
+                              {errors.numeroDocumento && (
+                                <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  {errors.numeroDocumento}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Genero */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Género <span className="text-red-500">*</span></label>
+                              <select
+                                value={formState.personales.genero}
+                                onChange={(e) => {
+                                  setFormState(prev => ({
+                                    ...prev,
+                                    personales: { ...prev.personales, genero: e.target.value }
+                                  }));
+                                }}
+                                className="w-full rounded-lg border border-slate-300 shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                              >
+                                <option value="Masculino">Masculino</option>
+                                <option value="Femenino">Femenino</option>
+                              </select>
+                            </div>
+
+                            {/* Nombres Completos */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Nombres Completos <span className="text-red-500">*</span></label>
+                              <input 
+                                type="text"
+                                value={formState.personales.nombres}
+                                onChange={(e) => {
+                                  setFormState(prev => ({
+                                    ...prev,
+                                    personales: { ...prev.personales, nombres: e.target.value }
+                                  }));
+                                  clearFieldError('nombres');
+                                }}
+                                placeholder="Nombres completos"
+                                className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                  errors.nombres ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                }`}
+                              />
+                              {errors.nombres && (
+                                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  {errors.nombres}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Apellido Paterno */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Apellido Paterno <span className="text-red-500">*</span></label>
+                              <input 
+                                type="text"
+                                value={formState.personales.apellidoPaterno}
+                                onChange={(e) => {
+                                  setFormState(prev => ({
+                                    ...prev,
+                                    personales: { ...prev.personales, apellidoPaterno: e.target.value }
+                                  }));
+                                  clearFieldError('apellidoPaterno');
+                                }}
+                                placeholder="Apellido paterno"
+                                className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                  errors.apellidoPaterno ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                }`}
+                              />
+                              {errors.apellidoPaterno && (
+                                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  {errors.apellidoPaterno}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Apellido Materno */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Apellido Materno <span className="text-red-500">*</span></label>
+                              <input 
+                                type="text"
+                                value={formState.personales.apellidoMaterno}
+                                onChange={(e) => {
+                                  setFormState(prev => ({
+                                    ...prev,
+                                    personales: { ...prev.personales, apellidoMaterno: e.target.value }
+                                  }));
+                                  clearFieldError('apellidoMaterno');
+                                }}
+                                placeholder="Apellido materno"
+                                className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                  errors.apellidoMaterno ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                }`}
+                              />
+                              {errors.apellidoMaterno && (
+                                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  {errors.apellidoMaterno}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Fecha de Nacimiento */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Fecha de Nacimiento <span className="text-red-500">*</span></label>
+                              <input 
+                                type="date"
+                                value={formState.personales.fechaNacimiento}
+                                onChange={(e) => {
+                                  setFormState(prev => ({
+                                    ...prev,
+                                    personales: { ...prev.personales, fechaNacimiento: e.target.value }
+                                  }));
+                                  clearFieldError('fechaNacimiento');
+                                }}
+                                className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                  errors.fechaNacimiento ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                }`}
+                              />
+                              {errors.fechaNacimiento && (
+                                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  {errors.fechaNacimiento}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Tipo de Colegio de Procedencia */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Tipo de Colegio <span className="text-slate-400 font-normal">(Opcional)</span></label>
+                              <select
+                                value={formState.personales.tipoColegioProcedencia || 'Colegio Particular'}
+                                onChange={(e) => {
+                                  setFormState(prev => ({
+                                    ...prev,
+                                    personales: { ...prev.personales, tipoColegioProcedencia: e.target.value }
+                                  }));
+                                }}
+                                className="w-full rounded-lg border border-slate-300 shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                              >
+                                <option value="Colegio Particular">Colegio Particular</option>
+                                <option value="Colegio Estatal">Colegio Estatal</option>
+                              </select>
+                            </div>
+
+                            {/* Colegio de Procedencia */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Colegio de Procedencia <span className="text-slate-400 font-normal">(Opcional)</span></label>
+                              <input 
+                                type="text"
+                                value={formState.personales.colegioProcedencia}
+                                onChange={(e) => {
+                                  setFormState(prev => ({
+                                    ...prev,
+                                    personales: { ...prev.personales, colegioProcedencia: e.target.value }
+                                  }));
+                                }}
+                                placeholder="Nombre del colegio anterior"
+                                className="w-full rounded-lg border border-slate-300 shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                              />
+                            </div>
+
+                            {/* Distrito de Colegio de Procedencia */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Distrito Colegio Procedencia <span className="text-slate-400 font-normal">(Opcional)</span></label>
+                              <input 
+                                type="text"
+                                value={formState.personales.nivelGradoProcedencia}
+                                onChange={(e) => {
+                                  setFormState(prev => ({
+                                    ...prev,
+                                    personales: { ...prev.personales, nivelGradoProcedencia: e.target.value }
+                                  }));
+                                }}
+                                placeholder="Ej. El Agustino"
+                                className="w-full rounded-lg border border-slate-300 shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                              />
+                            </div>
                           </div>
                         </div>
 
-                        {/* ROW 2: NOMBRES Y APELLIDOS */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                          {/* Nombres Completos */}
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Nombres Completos <span className="text-red-500">*</span></label>
-                            <input 
-                              type="text"
-                              value={formState.personales.nombres}
-                              onChange={(e) => {
-                                setFormState(prev => ({
-                                  ...prev,
-                                  personales: { ...prev.personales, nombres: e.target.value }
-                                }));
-                                clearFieldError('nombres');
-                              }}
-                              placeholder="Ingrese nombres completos"
-                              className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                errors.nombres ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                              }`}
-                            />
-                            {errors.nombres && (
-                              <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                {errors.nombres}
-                              </p>
-                            )}
-                          </div>
+                        {/* SECCIÓN 2: SEGURO DE ACCIDENTES */}
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                          <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-100">
+                            2. Seguro de Accidentes
+                          </h5>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                            {/* ¿Cuenta con Seguro de Accidentes? */}
+                            <div className="bg-slate-50/50 p-3 rounded-lg border border-slate-150">
+                              <span className="block text-sm font-semibold text-slate-700 mb-1">¿Cuenta con Seguro de Accidentes? <span className="text-red-500">*</span></span>
+                              <div className="flex items-center space-x-6 py-1">
+                                <label className="flex items-center space-x-2 cursor-pointer">
+                                  <input 
+                                    type="radio" 
+                                    name="cuentaSeguro" 
+                                    value="Si"
+                                    checked={formState.lugarAdicionales.cuentaSeguro === 'Si'}
+                                    onChange={() => {
+                                      setFormState(prev => ({
+                                        ...prev,
+                                        lugarAdicionales: { ...prev.lugarAdicionales, cuentaSeguro: 'Si' }
+                                      }));
+                                      clearFieldError('cuentaSeguro');
+                                    }}
+                                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                  />
+                                  <span className="text-sm font-medium text-slate-700">Sí</span>
+                                </label>
 
-                          {/* Apellido Paterno */}
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Apellido Paterno <span className="text-red-500">*</span></label>
-                            <input 
-                              type="text"
-                              value={formState.personales.apellidoPaterno}
-                              onChange={(e) => {
-                                setFormState(prev => ({
-                                  ...prev,
-                                  personales: { ...prev.personales, apellidoPaterno: e.target.value }
-                                }));
-                                clearFieldError('apellidoPaterno');
-                              }}
-                              placeholder="Ingrese apellido paterno"
-                              className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                errors.apellidoPaterno ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                              }`}
-                            />
-                            {errors.apellidoPaterno && (
-                              <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                {errors.apellidoPaterno}
-                              </p>
-                            )}
-                          </div>
+                                <label className="flex items-center space-x-2 cursor-pointer">
+                                  <input 
+                                    type="radio" 
+                                    name="cuentaSeguro" 
+                                    value="No"
+                                    checked={formState.lugarAdicionales.cuentaSeguro === 'No'}
+                                    onChange={() => {
+                                      setFormState(prev => ({
+                                        ...prev,
+                                        lugarAdicionales: { ...prev.lugarAdicionales, cuentaSeguro: 'No', aseguradora: '' }
+                                      }));
+                                      clearFieldError('cuentaSeguro');
+                                      clearFieldError('aseguradora');
+                                    }}
+                                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                  />
+                                  <span className="text-sm font-medium text-slate-700">No</span>
+                                </label>
+                              </div>
+                              {errors.cuentaSeguro && (
+                                <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  {errors.cuentaSeguro}
+                                </p>
+                              )}
+                            </div>
 
-                          {/* Apellido Materno */}
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Apellido Materno <span className="text-red-500">*</span></label>
-                            <input 
-                              type="text"
-                              value={formState.personales.apellidoMaterno}
-                              onChange={(e) => {
-                                setFormState(prev => ({
-                                  ...prev,
-                                  personales: { ...prev.personales, apellidoMaterno: e.target.value }
-                                }));
-                                clearFieldError('apellidoMaterno');
-                              }}
-                              placeholder="Ingrese apellido materno"
-                              className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                errors.apellidoMaterno ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                              }`}
-                            />
-                            {errors.apellidoMaterno && (
-                              <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                {errors.apellidoMaterno}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* ROW 3: GENERO Y FECHA DE NACIMIENTO */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-3">
-                          {/* Genero */}
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Género <span className="text-red-500">*</span></label>
-                            <select
-                              value={formState.personales.genero}
-                              onChange={(e) => {
-                                setFormState(prev => ({
-                                  ...prev,
-                                  personales: { ...prev.personales, genero: e.target.value }
-                                }));
-                              }}
-                              className="w-full rounded-lg border border-slate-300 shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-                            >
-                              <option value="Masculino">Masculino</option>
-                              <option value="Femenino">Femenino</option>
-                            </select>
-                          </div>
-
-                          {/* Fecha de Nacimiento */}
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Fecha de Nacimiento <span className="text-red-500">*</span></label>
-                            <input 
-                              type="date"
-                              value={formState.personales.fechaNacimiento}
-                              onChange={(e) => {
-                                setFormState(prev => ({
-                                  ...prev,
-                                  personales: { ...prev.personales, fechaNacimiento: e.target.value }
-                                }));
-                                clearFieldError('fechaNacimiento');
-                              }}
-                              className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                errors.fechaNacimiento ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                              }`}
-                            />
-                            {errors.fechaNacimiento && (
-                              <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                {errors.fechaNacimiento}
-                              </p>
-                            )}
+                            {/* Aseguradora - Solo visible si cuentaSeguro === 'Si' */}
+                            {formState.lugarAdicionales.cuentaSeguro === 'Si' ? (
+                              <motion.div 
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="p-3 bg-slate-50 rounded-lg border border-slate-150 h-full flex flex-col justify-center"
+                              >
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Nombre de la Compañía Aseguradora <span className="text-red-500">*</span></label>
+                                <input 
+                                  type="text"
+                                  value={formState.lugarAdicionales.aseguradora}
+                                  onChange={(e) => {
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      lugarAdicionales: { ...prev.lugarAdicionales, aseguradora: e.target.value }
+                                    }));
+                                    clearFieldError('aseguradora');
+                                  }}
+                                  placeholder="Rimac, Pacífico, Mapfre, La Positiva, etc."
+                                  className={`w-full rounded-lg border shadow-sm text-sm p-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                    errors.aseguradora ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                  }`}
+                                />
+                                {errors.aseguradora && (
+                                  <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.aseguradora}
+                                  </p>
+                                )}
+                              </motion.div>
+                            ) : null}
                           </div>
                         </div>
 
-                        {/* ROW 4: TIPO COLEGIO, COLEGIO PROCEDENCIA, DISTRITO COLEGIO */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-3">
-                          {/* Tipo de Colegio de Procedencia */}
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Tipo de Colegio de Procedencia <span className="text-slate-400 font-normal">(Opcional)</span></label>
-                            <select
-                              value={formState.personales.tipoColegioProcedencia || 'Colegio Particular'}
-                              onChange={(e) => {
-                                setFormState(prev => ({
-                                  ...prev,
-                                  personales: { ...prev.personales, tipoColegioProcedencia: e.target.value }
-                                }));
-                              }}
-                              className="w-full rounded-lg border border-slate-300 shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-                            >
-                              <option value="Colegio Particular">Colegio Particular</option>
-                              <option value="Colegio Estatal">Colegio Estatal</option>
-                            </select>
+                        {/* SECCIÓN 3: DIAGNÓSTICO MÉDICO O PSICOLÓGICO */}
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                          <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-100">
+                            3. Diagnóstico Médico o Psicológico
+                          </h5>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                            {/* ¿Tiene algún diagnóstico médico o psicológico? */}
+                            <div className="bg-slate-50/50 p-3 rounded-lg border border-slate-150">
+                              <span className="block text-sm font-semibold text-slate-700 mb-1">¿Tiene algún diagnóstico médico o psicológico? <span className="text-red-500">*</span></span>
+                              <div className="flex items-center space-x-6 py-1">
+                                <label className="flex items-center space-x-2 cursor-pointer">
+                                  <input 
+                                    type="radio" 
+                                    name="tieneDiagnostico" 
+                                    value="Si"
+                                    checked={formState.lugarAdicionales.tieneDiagnostico === 'Si'}
+                                    onChange={() => {
+                                      setFormState(prev => ({
+                                        ...prev,
+                                        lugarAdicionales: { ...prev.lugarAdicionales, tieneDiagnostico: 'Si' }
+                                      }));
+                                      clearFieldError('tieneDiagnostico');
+                                    }}
+                                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                  />
+                                  <span className="text-sm font-medium text-slate-700">Sí</span>
+                                </label>
+
+                                <label className="flex items-center space-x-2 cursor-pointer">
+                                  <input 
+                                    type="radio" 
+                                    name="tieneDiagnostico" 
+                                    value="No"
+                                    checked={formState.lugarAdicionales.tieneDiagnostico === 'No'}
+                                    onChange={() => {
+                                      setFormState(prev => ({
+                                        ...prev,
+                                        lugarAdicionales: { ...prev.lugarAdicionales, tieneDiagnostico: 'No', diagnosticoDetalle: '' }
+                                      }));
+                                      clearFieldError('tieneDiagnostico');
+                                      clearFieldError('diagnosticoDetalle');
+                                    }}
+                                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                  />
+                                  <span className="text-sm font-medium text-slate-700">No</span>
+                                </label>
+                              </div>
+                              {errors.tieneDiagnostico && (
+                                <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  {errors.tieneDiagnostico}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Detalle del Diagnóstico - Solo visible si tieneDiagnostico === 'Si' */}
+                            {formState.lugarAdicionales.tieneDiagnostico === 'Si' ? (
+                              <motion.div 
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="p-3 bg-slate-50 rounded-lg border border-slate-150 h-full flex flex-col justify-center"
+                              >
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Escriba cuál <span className="text-red-500">*</span></label>
+                                <input 
+                                  type="text"
+                                  value={formState.lugarAdicionales.diagnosticoDetalle || ''}
+                                  onChange={(e) => {
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      lugarAdicionales: { ...prev.lugarAdicionales, diagnosticoDetalle: e.target.value }
+                                    }));
+                                    clearFieldError('diagnosticoDetalle');
+                                  }}
+                                  placeholder="Escriba el diagnóstico aquí..."
+                                  className={`w-full rounded-lg border shadow-sm text-sm p-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                    errors.diagnosticoDetalle ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                  }`}
+                                />
+                                {errors.diagnosticoDetalle && (
+                                  <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.diagnosticoDetalle}
+                                  </p>
+                                )}
+                              </motion.div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {/* SECCIÓN 4: INFORMACIÓN RELIGIOSA */}
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                          <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-100">
+                            4. Información Religiosa del Menor
+                          </h5>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+                            {/* Religión del Menor */}
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Religión del Menor <span className="text-red-500">*</span></label>
+                              <select
+                                value={formState.lugarAdicionales.religion}
+                                onChange={(e) => {
+                                  const newRel = e.target.value;
+                                  setFormState(prev => ({
+                                    ...prev,
+                                    lugarAdicionales: { 
+                                      ...prev.lugarAdicionales, 
+                                      religion: newRel,
+                                      asisteIglesia: newRel ? prev.lugarAdicionales.asisteIglesia : '',
+                                      iglesiaParroquia: newRel ? prev.lugarAdicionales.iglesiaParroquia : ''
+                                    }
+                                  }));
+                                  clearFieldError('religion');
+                                }}
+                                className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                  errors.religion ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                }`}
+                              >
+                                <option value="">-- Seleccione una Religión --</option>
+                                <option value="Católica">Católica</option>
+                                <option value="Cristiana Evangélica">Cristiana Evangélica</option>
+                                <option value="Adventista">Adventista</option>
+                                <option value="Testigo de Jehová">Testigo de Jehová</option>
+                                <option value="Mormona">Mormona</option>
+                                <option value="Otra">Otra</option>
+                                <option value="Ninguna">Ninguna</option>
+                              </select>
+                              {errors.religion && (
+                                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  {errors.religion}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* ¿Asiste a alguna iglesia? - Solo visible si religión no es vacía */}
+                            {formState.lugarAdicionales.religion !== '' ? (
+                              <motion.div
+                                initial={{ opacity: 0, y: -5 }}
+                                animate={{ opacity: 1, y: 0 }}
+                              >
+                                <span className="block text-sm font-semibold text-slate-700 mb-1">¿Asiste a alguna iglesia? <span className="text-red-500">*</span></span>
+                                <div className="flex items-center space-x-6 py-2">
+                                  <label className="flex items-center space-x-2 cursor-pointer">
+                                    <input 
+                                      type="radio" 
+                                      name="asisteIglesia" 
+                                      value="Si"
+                                      checked={formState.lugarAdicionales.asisteIglesia === 'Si'}
+                                      onChange={() => {
+                                        setFormState(prev => ({
+                                          ...prev,
+                                          lugarAdicionales: { ...prev.lugarAdicionales, asisteIglesia: 'Si' }
+                                        }));
+                                        clearFieldError('asisteIglesia');
+                                      }}
+                                      className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                    />
+                                    <span className="text-sm font-medium text-slate-700">Sí</span>
+                                  </label>
+
+                                  <label className="flex items-center space-x-2 cursor-pointer">
+                                    <input 
+                                      type="radio" 
+                                      name="asisteIglesia" 
+                                      value="No"
+                                      checked={formState.lugarAdicionales.asisteIglesia === 'No'}
+                                      onChange={() => {
+                                        setFormState(prev => ({
+                                          ...prev,
+                                          lugarAdicionales: { ...prev.lugarAdicionales, asisteIglesia: 'No', iglesiaParroquia: '' }
+                                        }));
+                                        clearFieldError('asisteIglesia');
+                                        clearFieldError('iglesiaParroquia');
+                                      }}
+                                      className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                    />
+                                    <span className="text-sm font-medium text-slate-700">No</span>
+                                  </label>
+                                </div>
+                                {errors.asisteIglesia && (
+                                  <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.asisteIglesia}
+                                  </p>
+                                )}
+                              </motion.div>
+                            ) : null}
+
+                            {/* Nombre de la Iglesia - Solo visible si asisteIglesia === 'Si' */}
+                            {formState.lugarAdicionales.religion !== '' && formState.lugarAdicionales.asisteIglesia === 'Si' ? (
+                              <motion.div 
+                                initial={{ opacity: 0, y: -5 }}
+                                animate={{ opacity: 1, y: 0 }}
+                              >
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Nombre de la Iglesia <span className="text-red-500">*</span></label>
+                                <input 
+                                  type="text"
+                                  value={formState.lugarAdicionales.iglesiaParroquia}
+                                  onChange={(e) => {
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      lugarAdicionales: { ...prev.lugarAdicionales, iglesiaParroquia: e.target.value }
+                                    }));
+                                    clearFieldError('iglesiaParroquia');
+                                  }}
+                                  placeholder="Ej. Parroquia San Juan, etc."
+                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                    errors.iglesiaParroquia ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                  }`}
+                                />
+                                {errors.iglesiaParroquia && (
+                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {errors.iglesiaParroquia}
+                                  </p>
+                                )}
+                              </motion.div>
+                            ) : null}
                           </div>
 
-                          {/* Colegio de Procedencia */}
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Colegio de Procedencia <span className="text-slate-400 font-normal">(Opcional)</span></label>
-                            <input 
-                              type="text"
-                              value={formState.personales.colegioProcedencia}
-                              onChange={(e) => {
-                                setFormState(prev => ({
-                                  ...prev,
-                                  personales: { ...prev.personales, colegioProcedencia: e.target.value }
-                                }));
-                              }}
-                              placeholder="Nombre del colegio anterior"
-                              className="w-full rounded-lg border border-slate-300 shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-                            />
-                          </div>
+                          {/* SACRAMENTOS */}
+                          <div className="border-t border-slate-100 pt-3">
+                            <span className="block text-sm font-semibold text-slate-700 mb-2">Sacramentos</span>
+                            <div className="flex flex-row items-center gap-6 py-1">
+                              {/* Bautizado */}
+                              <label className="flex items-center space-x-2.5 cursor-pointer p-1">
+                                <input 
+                                  type="checkbox"
+                                  checked={formState.lugarAdicionales.bautizado}
+                                  onChange={(e) => {
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      lugarAdicionales: { ...prev.lugarAdicionales, bautizado: e.target.checked }
+                                    }));
+                                  }}
+                                  className="w-4.5 h-4.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                />
+                                <span className="text-sm font-medium text-slate-700">¿Está Bautizado(a)?</span>
+                              </label>
 
-                          {/* Distrito de Colegio de Procedencia */}
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Distrito de Colegio de Procedencia <span className="text-slate-400 font-normal">(Opcional)</span></label>
-                            <input 
-                              type="text"
-                              value={formState.personales.nivelGradoProcedencia}
-                              onChange={(e) => {
-                                setFormState(prev => ({
-                                  ...prev,
-                                  personales: { ...prev.personales, nivelGradoProcedencia: e.target.value }
-                                }));
-                              }}
-                              placeholder="Ej. El Agustino"
-                              className="w-full rounded-lg border border-slate-300 shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-                            />
+                              {/* Primera Comunión */}
+                              <label className="flex items-center space-x-2.5 cursor-pointer p-1">
+                                <input 
+                                  type="checkbox"
+                                  checked={formState.lugarAdicionales.primeraComunion}
+                                  onChange={(e) => {
+                                    setFormState(prev => ({
+                                      ...prev,
+                                      lugarAdicionales: { ...prev.lugarAdicionales, primeraComunion: e.target.checked }
+                                    }));
+                                  }}
+                                  className="w-4.5 h-4.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                />
+                                <span className="text-sm font-medium text-slate-700">¿Hizo la Primera Comunión?</span>
+                              </label>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1935,17 +2265,11 @@ export default function App() {
                                 setFormState(prev => {
                                   const updatedApoderado = {
                                     ...prev.padresTutores.apoderado,
-                                    pais: newPais
+                                    pais: newPais === 'Perú' ? 'Perú' : 'Otro',
+                                    departamento: '',
+                                    provincia: '',
+                                    distrito: ''
                                   };
-                                  if (newPais === 'Perú') {
-                                    updatedApoderado.departamento = 'Lima';
-                                    updatedApoderado.provincia = 'Lima';
-                                    updatedApoderado.distrito = 'El Agustino';
-                                  } else {
-                                    updatedApoderado.departamento = '';
-                                    updatedApoderado.provincia = '';
-                                    updatedApoderado.distrito = '';
-                                  }
                                   return {
                                     ...prev,
                                     padresTutores: {
@@ -1974,246 +2298,123 @@ export default function App() {
                             )}
                           </div>
 
-                          {/* Conditional Inputs */}
-                          {(formState.padresTutores.apoderado.pais || 'Perú') === 'Perú' ? (
-                            <>
-                              {/* Departamento */}
-                              <div>
-                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Departamento <span className="text-red-500">*</span></label>
-                                <select
-                                  value={formState.padresTutores.apoderado.departamento || 'Lima'}
-                                  onChange={(e) => {
-                                    const newDept = e.target.value;
-                                    const provList = DEPARTAMENTO_PROVINCIA_MAP[newDept] || [];
-                                    const defaultProv = provList[0] || '';
-                                    const distList = PROVINCIA_DISTRITO_MAP[defaultProv] || [];
-                                    const defaultDist = distList[0] || '';
-
-                                    setFormState(prev => ({
-                                      ...prev,
-                                      padresTutores: {
-                                        ...prev.padresTutores,
-                                        apoderado: {
-                                          ...prev.padresTutores.apoderado,
-                                          departamento: newDept,
-                                          provincia: defaultProv,
-                                          distrito: defaultDist
-                                        }
-                                      }
-                                    }));
-                                    clearFieldError('apoderado_departamento');
-                                    clearFieldError('apoderado_provincia');
-                                    clearFieldError('apoderado_distrito');
-                                  }}
-                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                    errors.apoderado_departamento ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                                  }`}
-                                >
-                                  {Object.keys(DEPARTAMENTO_PROVINCIA_MAP).map(dep => (
-                                    <option key={dep} value={dep}>{dep}</option>
-                                  ))}
-                                </select>
-                                {errors.apoderado_departamento && (
-                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    {errors.apoderado_departamento}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Provincia */}
-                              <div>
-                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Provincia <span className="text-red-500">*</span></label>
-                                <select
-                                  value={formState.padresTutores.apoderado.provincia || 'Lima'}
-                                  onChange={(e) => {
-                                    const newProv = e.target.value;
-                                    const distList = PROVINCIA_DISTRITO_MAP[newProv] || [];
-                                    const defaultDist = distList[0] || '';
-
-                                    setFormState(prev => ({
-                                      ...prev,
-                                      padresTutores: {
-                                        ...prev.padresTutores,
-                                        apoderado: {
-                                          ...prev.padresTutores.apoderado,
-                                          provincia: newProv,
-                                          distrito: defaultDist
-                                        }
-                                      }
-                                    }));
-                                    clearFieldError('apoderado_provincia');
-                                    clearFieldError('apoderado_distrito');
-                                  }}
-                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                    errors.apoderado_provincia ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                                  }`}
-                                >
-                                  {(DEPARTAMENTO_PROVINCIA_MAP[formState.padresTutores.apoderado.departamento || 'Lima'] || []).map(prov => (
-                                    <option key={prov} value={prov}>{prov}</option>
-                                  ))}
-                                </select>
-                                {errors.apoderado_provincia && (
-                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    {errors.apoderado_provincia}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Distrito */}
-                              <div>
-                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Distrito <span className="text-red-500">*</span></label>
-                                <select
-                                  value={formState.padresTutores.apoderado.distrito || 'El Agustino'}
-                                  onChange={(e) => {
-                                    setFormState(prev => ({
-                                      ...prev,
-                                      padresTutores: {
-                                        ...prev.padresTutores,
-                                        apoderado: {
-                                          ...prev.padresTutores.apoderado,
-                                          distrito: e.target.value
-                                        }
-                                      }
-                                    }));
-                                    clearFieldError('apoderado_distrito');
-                                  }}
-                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                    errors.apoderado_distrito ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                                  }`}
-                                >
-                                  {(PROVINCIA_DISTRITO_MAP[formState.padresTutores.apoderado.provincia || 'Lima'] || []).map(dst => (
-                                    <option key={dst} value={dst}>{dst}</option>
-                                  ))}
-                                </select>
-                                {errors.apoderado_distrito && (
-                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    {errors.apoderado_distrito}
-                                  </p>
-                                )}
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              {/* Custom País Input if needed or let them type it */}
-                              <div>
-                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Escriba el País <span className="text-red-500">*</span></label>
-                                <input
-                                  type="text"
-                                  value={formState.padresTutores.apoderado.pais === 'Otro' ? '' : (formState.padresTutores.apoderado.pais || '')}
-                                  onChange={(e) => {
-                                    setFormState(prev => ({
-                                      ...prev,
-                                      padresTutores: {
-                                        ...prev.padresTutores,
-                                        apoderado: { ...prev.padresTutores.apoderado, pais: e.target.value }
-                                      }
-                                    }));
-                                    clearFieldError('apoderado_pais');
-                                  }}
-                                  placeholder="Ej. Chile"
-                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                    errors.apoderado_pais ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                                  }`}
-                                />
-                                {errors.apoderado_pais && (
-                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    {errors.apoderado_pais}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Departamento Text Input */}
-                              <div>
-                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Departamento / Estado <span className="text-red-500">*</span></label>
-                                <input
-                                  type="text"
-                                  value={formState.padresTutores.apoderado.departamento || ''}
-                                  onChange={(e) => {
-                                    setFormState(prev => ({
-                                      ...prev,
-                                      padresTutores: {
-                                        ...prev.padresTutores,
-                                        apoderado: { ...prev.padresTutores.apoderado, departamento: e.target.value }
-                                      }
-                                    }));
-                                    clearFieldError('apoderado_departamento');
-                                  }}
-                                  placeholder="Ej. Santiago"
-                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                    errors.apoderado_departamento ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                                  }`}
-                                />
-                                {errors.apoderado_departamento && (
-                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    {errors.apoderado_departamento}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Provincia Text Input */}
-                              <div>
-                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Provincia <span className="text-red-500">*</span></label>
-                                <input
-                                  type="text"
-                                  value={formState.padresTutores.apoderado.provincia || ''}
-                                  onChange={(e) => {
-                                    setFormState(prev => ({
-                                      ...prev,
-                                      padresTutores: {
-                                        ...prev.padresTutores,
-                                        apoderado: { ...prev.padresTutores.apoderado, provincia: e.target.value }
-                                      }
-                                    }));
-                                    clearFieldError('apoderado_provincia');
-                                  }}
-                                  placeholder="Ej. Santiago"
-                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                    errors.apoderado_provincia ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                                  }`}
-                                />
-                                {errors.apoderado_provincia && (
-                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    {errors.apoderado_provincia}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Distrito Text Input */}
-                              <div>
-                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Distrito / Comuna <span className="text-red-500">*</span></label>
-                                <input
-                                  type="text"
-                                  value={formState.padresTutores.apoderado.distrito || ''}
-                                  onChange={(e) => {
-                                    setFormState(prev => ({
-                                      ...prev,
-                                      padresTutores: {
-                                        ...prev.padresTutores,
-                                        apoderado: { ...prev.padresTutores.apoderado, distrito: e.target.value }
-                                      }
-                                    }));
-                                    clearFieldError('apoderado_distrito');
-                                  }}
-                                  placeholder="Ej. Providencia"
-                                  className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
-                                    errors.apoderado_distrito ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
-                                  }`}
-                                />
-                                {errors.apoderado_distrito && (
-                                  <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    {errors.apoderado_distrito}
-                                  </p>
-                                )}
-                              </div>
-                            </>
+                          {/* Escriba el País (only shown if "Otro" is selected in country dropdown) */}
+                          {(formState.padresTutores.apoderado.pais !== 'Perú') && (
+                            <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Escriba el País <span className="text-red-500">*</span></label>
+                              <input
+                                type="text"
+                                value={formState.padresTutores.apoderado.pais === 'Otro' ? '' : (formState.padresTutores.apoderado.pais || '')}
+                                onChange={(e) => {
+                                  setFormState(prev => ({
+                                    ...prev,
+                                    padresTutores: {
+                                      ...prev.padresTutores,
+                                      apoderado: { ...prev.padresTutores.apoderado, pais: e.target.value }
+                                    }
+                                  }));
+                                  clearFieldError('apoderado_pais');
+                                }}
+                                placeholder="Ej. Chile"
+                                className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                  errors.apoderado_pais ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                                }`}
+                              />
+                              {errors.apoderado_pais && (
+                                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  {errors.apoderado_pais}
+                                </p>
+                              )}
+                            </div>
                           )}
+
+                          {/* Departamento */}
+                          <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Departamento <span className="text-red-500">*</span></label>
+                            <input
+                              type="text"
+                              value={formState.padresTutores.apoderado.departamento || ''}
+                              onChange={(e) => {
+                                setFormState(prev => ({
+                                  ...prev,
+                                  padresTutores: {
+                                    ...prev.padresTutores,
+                                    apoderado: { ...prev.padresTutores.apoderado, departamento: e.target.value }
+                                  }
+                                }));
+                                clearFieldError('apoderado_departamento');
+                              }}
+                              placeholder="Ej. Lima"
+                              className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                errors.apoderado_departamento ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                              }`}
+                            />
+                            {errors.apoderado_departamento && (
+                              <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                {errors.apoderado_departamento}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Provincia */}
+                          <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Provincia <span className="text-red-500">*</span></label>
+                            <input
+                              type="text"
+                              value={formState.padresTutores.apoderado.provincia || ''}
+                              onChange={(e) => {
+                                setFormState(prev => ({
+                                  ...prev,
+                                  padresTutores: {
+                                    ...prev.padresTutores,
+                                    apoderado: { ...prev.padresTutores.apoderado, provincia: e.target.value }
+                                  }
+                                }));
+                                clearFieldError('apoderado_provincia');
+                              }}
+                              placeholder="Ej. Lima"
+                              className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                errors.apoderado_provincia ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                              }`}
+                            />
+                            {errors.apoderado_provincia && (
+                              <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                {errors.apoderado_provincia}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Distrito */}
+                          <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Distrito <span className="text-red-500">*</span></label>
+                            <input
+                              type="text"
+                              value={formState.padresTutores.apoderado.distrito || ''}
+                              onChange={(e) => {
+                                setFormState(prev => ({
+                                  ...prev,
+                                  padresTutores: {
+                                    ...prev.padresTutores,
+                                    apoderado: { ...prev.padresTutores.apoderado, distrito: e.target.value }
+                                  }
+                                }));
+                                clearFieldError('apoderado_distrito');
+                              }}
+                              placeholder="Ej. El Agustino"
+                              className={`w-full rounded-lg border shadow-sm text-sm p-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${
+                                errors.apoderado_distrito ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'
+                              }`}
+                            />
+                            {errors.apoderado_distrito && (
+                              <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                {errors.apoderado_distrito}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -3187,7 +3388,7 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs sm:text-sm pt-2 border-t border-slate-100/60">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs sm:text-sm pt-2 border-t border-slate-100/60">
                             <div>
                               <span className="block text-xs text-slate-400 font-medium">Documento de Identidad:</span>
                               <span className="font-semibold text-slate-800">{formState.personales.tipoDocumento}: {formState.personales.numeroDocumento || <span className="text-red-500 italic">Falta número</span>}</span>
@@ -3196,9 +3397,32 @@ export default function App() {
                               <span className="block text-xs text-slate-400 font-medium">Fecha Nacimiento:</span>
                               <span className="font-semibold text-slate-800">{formState.personales.fechaNacimiento || <span className="text-red-500 italic">Falta fecha</span>}</span>
                             </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs sm:text-sm pt-2 border-t border-slate-100/60">
                             <div>
                               <span className="block text-xs text-slate-400 font-medium">Seguro de Accidentes:</span>
                               <span className="font-semibold text-slate-800">{formState.lugarAdicionales.cuentaSeguro === 'Si' ? `Sí (${formState.lugarAdicionales.aseguradora})` : 'No cuenta'}</span>
+                            </div>
+                            <div>
+                              <span className="block text-xs text-slate-400 font-medium">Diagnóstico Médico/Psicológico:</span>
+                              <span className="font-semibold text-slate-800">{formState.lugarAdicionales.tieneDiagnostico === 'Si' ? `Sí (${formState.lugarAdicionales.diagnosticoDetalle})` : 'No presenta'}</span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs sm:text-sm pt-2 border-t border-slate-100/60">
+                            <div>
+                              <span className="block text-xs text-slate-400 font-medium">Religión y Asistencia:</span>
+                              <span className="font-semibold text-slate-800">{formState.lugarAdicionales.religion ? `${formState.lugarAdicionales.religion} ${formState.lugarAdicionales.asisteIglesia === 'Si' ? `(Asiste a: ${formState.lugarAdicionales.iglesiaParroquia})` : '(No asiste a iglesia)'}` : <span className="text-red-500 italic">Falta religión</span>}</span>
+                            </div>
+                            <div>
+                              <span className="block text-xs text-slate-400 font-medium">Sacramentos:</span>
+                              <span className="font-semibold text-slate-800">
+                                {[
+                                  formState.lugarAdicionales.bautizado ? 'Bautizado(a)' : null,
+                                  formState.lugarAdicionales.primeraComunion ? 'Primera Comunión' : null
+                                ].filter(Boolean).join(', ') || 'Ninguno'}
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -3419,19 +3643,12 @@ export default function App() {
                   <button 
                     onClick={() => {
                       downloadConstanciaPDF(formState);
-                      triggerToast("📥 Descargando Constancia en PDF...");
+                      triggerToast("📥 Descargando Expediente Completo en PDF...");
                     }}
                     className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 px-6 rounded-xl transition duration-150 flex items-center justify-center space-x-2 text-sm shadow-md cursor-pointer"
                   >
                     <Download className="w-4 h-4" />
                     <span>Descargar PDF</span>
-                  </button>
-                  <button 
-                    onClick={() => window.print()}
-                    className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 px-6 rounded-xl transition duration-150 flex items-center justify-center space-x-2 text-sm shadow-md cursor-pointer"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>Imprimir Constancia</span>
                   </button>
                 </div>
 

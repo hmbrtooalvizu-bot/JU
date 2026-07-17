@@ -100,6 +100,30 @@ export const validateStep = (step: number, state: FormState, isSimple?: boolean)
       if (!fechaNacimiento) {
         errors.fechaNacimiento = "La fecha de nacimiento es obligatoria.";
       }
+
+      // Nuevos campos de Salud y Religión para Ficha Simplificada
+      const { cuentaSeguro, aseguradora, tieneDiagnostico, diagnosticoDetalle, religion, asisteIglesia, iglesiaParroquia } = state.lugarAdicionales;
+      if (!cuentaSeguro) {
+        errors.cuentaSeguro = "Debe especificar si cuenta con seguro de accidentes.";
+      } else if (cuentaSeguro === 'Si' && !aseguradora.trim()) {
+        errors.aseguradora = "Debe especificar el nombre de la compañía aseguradora.";
+      }
+
+      if (!tieneDiagnostico) {
+        errors.tieneDiagnostico = "Debe especificar si tiene algún diagnóstico médico o psicológico.";
+      } else if (tieneDiagnostico === 'Si' && (!diagnosticoDetalle || !diagnosticoDetalle.trim())) {
+        errors.diagnosticoDetalle = "Debe especificar el diagnóstico médico o psicológico.";
+      }
+
+      if (!religion || !religion.trim()) {
+        errors.religion = "La religión del menor es obligatoria.";
+      } else {
+        if (!asisteIglesia) {
+          errors.asisteIglesia = "Debe indicar si asiste a alguna iglesia.";
+        } else if (asisteIglesia === 'Si' && !iglesiaParroquia.trim()) {
+          errors.iglesiaParroquia = "Debe especificar el nombre de la iglesia.";
+        }
+      }
     }
 
     return errors;

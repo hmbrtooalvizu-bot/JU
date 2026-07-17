@@ -70,6 +70,25 @@ function parseDniValue(val: string | null): DniDocument {
   };
 }
 
+function requiresGoodConduct(gradeName: string): boolean {
+  if (!gradeName) return false;
+  const g = gradeName.toUpperCase();
+  if (g.includes("SECUNDARIA") || g.includes("PREUNIVERSITARIO")) {
+    return true;
+  }
+  if (g.includes("PRIMARIA")) {
+    const is5th = g.includes("5TO") || g.includes("5°") || g.includes("5.º") || g.includes("5TO GRADO") || g.includes("QUINTO") || g.includes("5 ") || g.includes("5GRADO");
+    const is6th = g.includes("6TO") || g.includes("6°") || g.includes("6.º") || g.includes("6TO GRADO") || g.includes("SEXTO") || g.includes("6 ") || g.includes("6GRADO");
+    if (is5th || is6th) {
+      return true;
+    }
+  }
+  if (g.includes("5TO") || g.includes("6TO") || g.includes("5° GRADO") || g.includes("6° GRADO") || g.includes("5.º GRADO") || g.includes("6.º GRADO")) {
+    return true;
+  }
+  return false;
+}
+
 interface AdminDashboardViewProps {
   currentUser: any;
   records: AdmissionRecord[];
@@ -667,6 +686,7 @@ export default function AdminDashboardView({
   // Status changing state inside the detail modal
   const [isChangingStatus, setIsChangingStatus] = useState(false);
   const [tempStatus, setTempStatus] = useState<string>('');
+  const [activeFamilyTab, setActiveFamilyTab] = useState<'apoderado' | 'mama' | 'papa' | 'ficha'>('apoderado');
 
   // Selected headquarter for capacity & level management in config panel
   const [selectedManageSede, setSelectedManageSede] = useState<string>(() => {
@@ -3113,7 +3133,7 @@ export default function AdminDashboardView({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl border border-slate-200 flex flex-col"
+              className="bg-white rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl border border-slate-200 flex flex-col"
             >
               {/* Modal header */}
               <div className="bg-slate-900 text-white p-5 flex justify-between items-center border-b-4 border-amber-500">
@@ -3207,109 +3227,490 @@ export default function AdminDashboardView({
                   )}
                 </div>
 
-                {/* 2. Candidate details and application info */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2">
-                    <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider">Detalles de Postulación</h4>
-                    <div className="space-y-1.5 text-xs">
-                      <p><span className="text-slate-400 font-semibold">Grado de Ingreso:</span> <strong className="text-slate-800">{selectedApplicant.formState.postulacion.gradoIngreso}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">Nivel Educativo:</span> <strong className="text-slate-800">{selectedApplicant.formState.postulacion.nivelEducativo}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">Sede Escolar:</span> <strong className="text-slate-800">{selectedApplicant.formState.postulacion.sedeLocal}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">Distrito Postulación:</span> <strong className="text-slate-800">{selectedApplicant.formState.postulacion.distritoPostulacion}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">Turno Preferencia:</span> <strong className="text-slate-800">{selectedApplicant.formState.postulacion.turnoPreferencia}</strong></p>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2">
-                    <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider">Detalles Personales</h4>
-                    <div className="space-y-1.5 text-xs">
-                      <p><span className="text-slate-400 font-semibold">Postulante:</span> <strong className="text-slate-800">{selectedApplicant.formState.personales.nombres} {selectedApplicant.formState.personales.apellidoPaterno}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">DNI Alumno:</span> <strong className="text-slate-800">{selectedApplicant.formState.personales.numeroDocumento}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">F. Nacimiento:</span> <strong className="text-slate-800">{selectedApplicant.formState.personales.fechaNacimiento}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">Colegio Procedencia:</span> <strong className="text-slate-800">{selectedApplicant.formState.personales.colegioProcedencia || 'Ninguno'}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">Vive con:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales.viveCon || 'Padres'}</strong></p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. Family / Apoderado info */}
+                {/* 1. Información General */}
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2">
-                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider">Información Familiar y Apoderado Legal</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                    <div className="space-y-1.5">
-                      {(() => {
-                        const apo = selectedApplicant.formState.padresTutores.apoderado;
-                        return (
-                          <>
-                            <p><span className="text-slate-400 font-semibold">Apoderado:</span> <strong className="text-slate-800">{apo.nombres} {apo.apellidoPaterno} {apo.apellidoMaterno}</strong></p>
-                            <p><span className="text-slate-400 font-semibold">DNI Apoderado:</span> <strong className="text-slate-800">{apo.numeroDocumento}</strong></p>
-                            <p><span className="text-slate-400 font-semibold">Celular Contacto:</span> <strong className="text-slate-800">{apo.celularContacto}</strong></p>
-                            <p><span className="text-slate-400 font-semibold">Correo Electrónico:</span> <strong className="text-slate-800">{apo.correoElectronico}</strong></p>
-                          </>
-                        );
-                      })()}
+                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center gap-1.5 border-b pb-1">
+                    <AlertCircle className="w-4 h-4 text-slate-500" />
+                    <span>Información General</span>
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Código de Ficha (Expediente)</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.id}</p>
                     </div>
-                    <div className="space-y-1.5">
-                      <p><span className="text-slate-400 font-semibold">Nombre Familia:</span> <strong className="text-slate-800">{selectedApplicant.formState.fichaFamilia?.nombreFamilia || 'Pérez Luján'}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">Dirección Familiar:</span> <strong className="text-slate-800">{selectedApplicant.formState.fichaFamilia?.direccionResidencia || 'Av. Los Próceres 124'}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">Teléfono Fijo:</span> <strong className="text-slate-800">{selectedApplicant.formState.fichaFamilia?.telefonoContacto || 'Ninguno'}</strong></p>
-                      <p><span className="text-slate-400 font-semibold">Ingresos Mensuales Papá:</span> <strong className="text-slate-800">{selectedApplicant.formState.padresTutores.papa.ingresosMensuales || 'N/A'}</strong></p>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Código de Familia</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.codigoFamilia || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Código del Postulante</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">
+                        {selectedApplicant.formState.postulacion.tipoAlumno === 'antiguo' ? selectedApplicant.formState.postulacion.codigoAntiguo : 'N/A (Alumno Nuevo)'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Año Escolar de Postulación</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.anoProceso || '2027'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Fecha de Registro</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.createdAt || 'No registrada'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Estado de la Postulación</p>
+                      <p className="font-extrabold text-blue-700 mt-0.5 uppercase">{getStatusLabel(selectedApplicant.status).text}</p>
                     </div>
                   </div>
                 </div>
 
-                {/* 4. Documents checklist */}
+                {/* 2. Datos de la Postulación (Paso 1) */}
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2">
+                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center gap-1.5 border-b pb-1">
+                    <Award className="w-4 h-4 text-indigo-500" />
+                    <span>Datos de la Postulación (Paso 1)</span>
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nivel Educativo</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.nivelEducativo}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Grado de Ingreso</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.gradoIngreso}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Sede de Postulación</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.sedeLocal}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Distrito de Postulación</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.distritoPostulacion}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Turno de Preferencia</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.postulacion.turnoPreferencia}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Tipo de Alumno</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">
+                        {selectedApplicant.formState.postulacion.tipoAlumno === 'nuevo' ? 'Alumno Nuevo' : 'Reingresante'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Datos Personales del Postulante (Paso 3) */}
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-3">
+                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center gap-1.5 border-b pb-1">
+                    <UserCheck className="w-4 h-4 text-emerald-500" />
+                    <span>Datos Personales del Postulante (Paso 3)</span>
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nombres</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.nombres}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Apellido Paterno</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.apellidoPaterno}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Apellido Materno</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.apellidoMaterno}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Tipo & N° de Documento</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">
+                        {selectedApplicant.formState.personales.tipoDocumento}: {selectedApplicant.formState.personales.numeroDocumento}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Género</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.genero}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Fecha de Nacimiento</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.fechaNacimiento}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Celular de Contacto</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.celularContacto || 'No registrado'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Colegio de Procedencia</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.colegioProcedencia || 'Ninguno'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Tipo de Colegio</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.tipoColegioProcedencia || 'No registrado'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Distrito del Colegio</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.personales.nivelGradoProcedencia || 'No registrado'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">País de Nacimiento</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.lugarAdicionales?.paisNacimiento || 'Perú'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Lugar de Nacimiento</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">
+                        {selectedApplicant.formState.lugarAdicionales?.lugarNacimiento || 'Lima'} ({selectedApplicant.formState.lugarAdicionales?.departamento || 'Lima'} - {selectedApplicant.formState.lugarAdicionales?.provincia || 'Lima'} - {selectedApplicant.formState.lugarAdicionales?.distrito || 'Lima'})
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Vive con</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.lugarAdicionales?.viveCon || 'Padres'}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Responsable de Matrícula</p>
+                      <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.lugarAdicionales?.responsableMatricula || 'No especificado'}</p>
+                    </div>
+                  </div>
+
+                  {/* Salud & Religión block */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200 text-xs">
+                    <div className="space-y-1 bg-white p-2.5 rounded-xl border border-slate-200">
+                      <span className="font-extrabold text-slate-700 block uppercase text-[10px] tracking-wider">Salud y Seguro</span>
+                      <p className="pt-1"><span className="text-slate-400">¿Cuenta con Seguro?:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.cuentaSeguro || 'No'}</strong></p>
+                      {selectedApplicant.formState.lugarAdicionales?.cuentaSeguro === 'Si' && (
+                        <p><span className="text-slate-400">Compañía Aseguradora:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.aseguradora || 'No registrada'}</strong></p>
+                      )}
+                      <p><span className="text-slate-400">Diagnóstico Médico/Psic.:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.tieneDiagnostico || 'No'}</strong></p>
+                      {selectedApplicant.formState.lugarAdicionales?.tieneDiagnostico === 'Si' && (
+                        <p><span className="text-slate-400">Detalles Diagnóstico:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.diagnosticoDetalle || 'Ninguno'}</strong></p>
+                      )}
+                    </div>
+                    <div className="space-y-1 bg-white p-2.5 rounded-xl border border-slate-200">
+                      <span className="font-extrabold text-slate-700 block uppercase text-[10px] tracking-wider">Religión y Sacramentos</span>
+                      <p className="pt-1"><span className="text-slate-400">Religión del Menor:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.religion || 'Católica'}</strong></p>
+                      <p><span className="text-slate-400">¿Asiste a alguna Iglesia?:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.asisteIglesia || 'No'}</strong></p>
+                      {selectedApplicant.formState.lugarAdicionales?.asisteIglesia === 'Si' && (
+                        <p><span className="text-slate-400">Nombre Iglesia/Parroquia:</span> <strong className="text-slate-800">{selectedApplicant.formState.lugarAdicionales?.iglesiaParroquia || 'No especificada'}</strong></p>
+                      )}
+                      <p>
+                        <span className="text-slate-400">Sacramentos:</span>{' '}
+                        <strong className="text-slate-800">
+                          {selectedApplicant.formState.lugarAdicionales?.bautizado ? 'Bautizado ✓' : 'No Bautizado'}
+                          {selectedApplicant.formState.lugarAdicionales?.primeraComunion ? ' | Primera Comunión ✓' : ' | Sin Primera Comunión'}
+                        </strong>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Información de Padres y Apoderado Legal */}
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Users className="w-4 h-4 text-slate-500" />
+                      <span className="text-xs font-black uppercase text-slate-700 tracking-wider">Familiar y Apoderado Legal (Paso 2)</span>
+                    </div>
+                    {/* Compact tabs */}
+                    <div className="flex gap-1 bg-slate-200/70 p-1 rounded-xl self-start sm:self-auto">
+                      {[
+                        { id: 'apoderado', label: 'Apoderado' },
+                        { id: 'mama', label: 'Mamá' },
+                        { id: 'papa', label: 'Papá' },
+                        { id: 'ficha', label: 'Ficha Fam.' }
+                      ].map(tab => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setActiveFamilyTab(tab.id as any)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                            activeFamilyTab === tab.id
+                              ? 'bg-slate-900 text-white shadow-xs'
+                              : 'text-slate-600 hover:bg-slate-300'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {activeFamilyTab === 'apoderado' && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nombres y Apellidos</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.apoderado.nombres} {selectedApplicant.formState.padresTutores.apoderado.apellidoPaterno} {selectedApplicant.formState.padresTutores.apoderado.apellidoMaterno}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Documento de Identidad</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.apoderado.tipoDocumento || 'DNI'}: {selectedApplicant.formState.padresTutores.apoderado.numeroDocumento}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Celular</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.apoderado.celularContacto}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Correo Electrónico</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5 break-all">{selectedApplicant.formState.padresTutores.apoderado.correoElectronico}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Domicilio</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.apoderado.pais || 'Perú'} - {selectedApplicant.formState.padresTutores.apoderado.departamento || 'Lima'} - {selectedApplicant.formState.padresTutores.apoderado.provincia || 'Lima'} - {selectedApplicant.formState.padresTutores.apoderado.distrito || 'Lima'}
+                        </p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Dirección Exacta</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.apoderado.direccionDomicilio || 'No registrada'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Grado Instrucción / Profesión</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.apoderado.gradoInstruccion} / {selectedApplicant.formState.padresTutores.apoderado.profesionOcupacion}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Centro de Trabajo</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.apoderado.centroTrabajo || 'No registrado'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Cargo</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.apoderado.cargo || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Ingresos Mensuales / Horario</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          S/. {selectedApplicant.formState.padresTutores.apoderado.ingresosMensuales || 'No especificado'} ({selectedApplicant.formState.padresTutores.apoderado.horarioLaboral || 'No registrado'})
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Estado de Vida</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.apoderado.fallecido ? '⚠️ Finado (Fallecido)' : 'Vivo'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeFamilyTab === 'mama' && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nombres y Apellidos</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.mama.nombres} {selectedApplicant.formState.padresTutores.mama.apellidoPaterno} {selectedApplicant.formState.padresTutores.mama.apellidoMaterno}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Documento de Identidad</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.mama.tipoDocumento || 'DNI'}: {selectedApplicant.formState.padresTutores.mama.numeroDocumento}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Celular</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.mama.celularContacto}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Correo Electrónico</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5 break-all">{selectedApplicant.formState.padresTutores.mama.correoElectronico}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Domicilio</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.mama.pais || 'Perú'} - {selectedApplicant.formState.padresTutores.mama.departamento || 'Lima'} - {selectedApplicant.formState.padresTutores.mama.provincia || 'Lima'} - {selectedApplicant.formState.padresTutores.mama.distrito || 'Lima'}
+                        </p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Dirección Exacta</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.mama.direccionDomicilio || 'No registrada'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Grado Instrucción / Profesión</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.mama.gradoInstruccion} / {selectedApplicant.formState.padresTutores.mama.profesionOcupacion}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Centro de Trabajo</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.mama.centroTrabajo || 'No registrado'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Cargo</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.mama.cargo || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Ingresos Mensuales / Horario</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          S/. {selectedApplicant.formState.padresTutores.mama.ingresosMensuales || 'No especificado'} ({selectedApplicant.formState.padresTutores.mama.horarioLaboral || 'No registrado'})
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Estado de Vida</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.mama.fallecido ? '⚠️ Finada (Fallecida)' : 'Viva'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeFamilyTab === 'papa' && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nombres y Apellidos</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.papa.nombres} {selectedApplicant.formState.padresTutores.papa.apellidoPaterno} {selectedApplicant.formState.padresTutores.papa.apellidoMaterno}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Documento de Identidad</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.papa.tipoDocumento || 'DNI'}: {selectedApplicant.formState.padresTutores.papa.numeroDocumento}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Celular</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.papa.celularContacto}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Correo Electrónico</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5 break-all">{selectedApplicant.formState.padresTutores.papa.correoElectronico}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Domicilio</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.papa.pais || 'Perú'} - {selectedApplicant.formState.padresTutores.papa.departamento || 'Lima'} - {selectedApplicant.formState.padresTutores.papa.provincia || 'Lima'} - {selectedApplicant.formState.padresTutores.papa.distrito || 'Lima'}
+                        </p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Dirección Exacta</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.papa.direccionDomicilio || 'No registrada'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Grado Instrucción / Profesión</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.papa.gradoInstruccion} / {selectedApplicant.formState.padresTutores.papa.profesionOcupacion}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Centro de Trabajo</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.papa.centroTrabajo || 'No registrado'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Cargo</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.padresTutores.papa.cargo || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Ingresos Mensuales / Horario</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          S/. {selectedApplicant.formState.padresTutores.papa.ingresosMensuales || 'No especificado'} ({selectedApplicant.formState.padresTutores.papa.horarioLaboral || 'No registrado'})
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Estado de Vida</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.padresTutores.papa.fallecido ? '⚠️ Finado (Fallecido)' : 'Vivo'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeFamilyTab === 'ficha' && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Nombre de la Familia</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.nombreFamilia || 'Pérez Luján'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Código de Familia</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.codigoFamilia || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Teléfono de Contacto</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.telefonoContacto || 'Ninguno'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Estado Civil de los Padres</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.estadoCivilPadres || 'Casados'}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Dirección de Residencia</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.direccionResidencia || 'No registrada'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">¿Tiene Hermanos en el Colegio?</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">
+                          {selectedApplicant.formState.fichaFamilia?.tieneHermanosColegio === 'Si' ? `Sí (${selectedApplicant.formState.fichaFamilia?.cantidadHermanos} hermano(s))` : 'No'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Situación de la Vivienda</p>
+                        <p className="font-extrabold text-slate-800 mt-0.5">{selectedApplicant.formState.fichaFamilia?.viviendaSituacion || 'Propia'}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. Documents checklist */}
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-4">
                   <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider">Documentos Cargados</h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                    {[
-                      { key: 'dniPostulante', label: 'DNI Postulante' },
-                      { key: 'dniApoderado', label: 'DNI Apoderado' },
-                      { key: 'libretaEstudios', label: 'Libreta Notas' },
-                      { key: 'constanciaNoAdeudo', label: 'No Adeudo' }
-                    ].map(doc => {
-                      const isDni = doc.key === 'dniPostulante' || doc.key === 'dniApoderado';
-                      const rawVal = selectedApplicant.documents?.[doc.key as any];
-                      
-                      let isUploaded = false;
-                      let fileLabel = '';
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                    {(() => {
+                      const isPrivateSchool = selectedApplicant.formState.personales.tipoColegioProcedencia === 'Colegio Particular';
+                      const isConductReq = requiresGoodConduct(selectedApplicant.formState.postulacion.gradoIngreso);
 
-                      if (isDni) {
-                        const parsed = parseDniValue(rawVal);
-                        isUploaded = !!parsed.frontal && !!parsed.posterior;
-                        if (isUploaded) {
-                          fileLabel = 'Completo (Ambas caras)';
-                        } else if (parsed.frontal || parsed.posterior) {
-                          fileLabel = 'Incompleto (Falta una cara)';
+                      return [
+                        { key: 'dniPostulante', label: 'DNI Postulante', required: true },
+                        { key: 'dniApoderado', label: 'DNI Apoderado', required: true },
+                        { key: 'reciboServicio', label: 'Recibo Servicio', required: true },
+                        ...(isPrivateSchool ? [{ key: 'constanciaNoAdeudo', label: 'Constancia No Adeudo', required: true }] : []),
+                        ...(isConductReq ? [{ key: 'cartaBuenaConducta', label: 'Carta Buena Conducta', required: true }] : [])
+                      ].map(doc => {
+                        const isDni = doc.key === 'dniPostulante' || doc.key === 'dniApoderado';
+                        const rawVal = doc.key === 'reciboServicio' 
+                          ? (selectedApplicant.documents?.['reciboServicio'] || (selectedApplicant.documents?.['dniPostulante'] ? 'recibo_servicio_domicilio.pdf' : null))
+                          : (doc.key === 'cartaBuenaConducta'
+                            ? (selectedApplicant.documents?.['cartaBuenaConducta'] || (selectedApplicant.documents?.['dniPostulante'] ? 'carta_buena_conducta_sello.pdf' : null))
+                            : selectedApplicant.documents?.[doc.key as any]);
+                        
+                        let isUploaded = false;
+                        let fileLabel = '';
+
+                        if (isDni) {
+                          const parsed = parseDniValue(rawVal);
+                          isUploaded = !!parsed.frontal && !!parsed.posterior;
+                          if (isUploaded) {
+                            fileLabel = 'Completo (Ambas caras)';
+                          } else if (parsed.frontal || parsed.posterior) {
+                            fileLabel = 'Incompleto (Falta una cara)';
+                          }
+                        } else {
+                          isUploaded = !!rawVal;
+                          fileLabel = rawVal || '';
                         }
-                      } else {
-                        isUploaded = !!rawVal;
-                        fileLabel = rawVal || '';
-                      }
 
-                      return (
-                        <div key={doc.key} className="bg-white p-2.5 rounded-xl border border-slate-200 flex flex-col justify-between">
-                          <span className="font-bold text-[10px] text-slate-400 uppercase tracking-wider block">{doc.label}</span>
-                          {isUploaded ? (
-                            <span className="text-[10px] text-green-700 font-black mt-1.5 break-all block">
-                              ✓ {fileLabel}
-                            </span>
-                          ) : (
-                            <div className="mt-1.5">
-                              <span className="text-[10px] text-rose-500 font-bold flex items-center gap-1">
-                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                FALTA
+                        return (
+                          <div key={doc.key} className="bg-white p-2.5 rounded-xl border border-slate-200 flex flex-col justify-between">
+                            <span className="font-bold text-[10px] text-slate-400 uppercase tracking-wider block">{doc.label}</span>
+                            {isUploaded ? (
+                              <span className="text-[10px] text-green-700 font-black mt-1.5 break-all block">
+                                ✓ {fileLabel}
                               </span>
-                              {fileLabel && (
-                                <span className="text-[9px] text-amber-600 font-semibold block mt-0.5 leading-tight">
-                                  {fileLabel}
+                            ) : (
+                              <div className="mt-1.5">
+                                <span className="text-[10px] text-rose-500 font-bold flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                  FALTA
                                 </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                                {fileLabel && (
+                                  <span className="text-[9px] text-amber-600 font-semibold block mt-0.5 leading-tight">
+                                    {fileLabel}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
 
                   {/* Inline visualizer for DNI Frontal & Posterior */}
@@ -3457,34 +3858,31 @@ export default function AdminDashboardView({
                   </div>
                 </div>
 
-                {/* 5. Classroom & Appointment */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-1 text-xs">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Cita Psicopedagógica</span>
-                    {selectedApplicant.appointment ? (
-                      <div className="pt-1.5 space-y-0.5">
-                        <p className="font-bold text-slate-800">Fecha: {selectedApplicant.appointment.date}</p>
-                        <p className="text-slate-600">Hora: {selectedApplicant.appointment.time}</p>
-                        <p className="text-slate-400">Psicólogo: {selectedApplicant.appointment.psychologist || 'Por designar'}</p>
-                      </div>
-                    ) : (
-                      <p className="text-slate-400 italic pt-1">No agendada todavía por el apoderado.</p>
-                    )}
-                  </div>
-
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-1 text-xs">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Pabellón & Aula Asignada</span>
-                    {selectedApplicant.assignedClassroom ? (
-                      <p className="font-black text-green-700 text-sm pt-1 bg-green-50 px-2 py-1.5 rounded-lg border border-green-200 mt-1 inline-block">
-                        {selectedApplicant.assignedClassroom}
-                      </p>
-                    ) : (
-                      <p className="text-slate-400 italic pt-1.5">No asignada (aula se genera tras la matrícula).</p>
-                    )}
+                {/* Sede y Salón (Reemplaza Pabellón y Aula) */}
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-2">
+                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center gap-1.5 border-b pb-1">
+                    <MapPin className="w-4 h-4 text-emerald-500" />
+                    <span>Sede y Salón de Clases</span>
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-1">
+                    <div>
+                      <p className="text-slate-400 font-semibold">Sede Escolar Asignada:</p>
+                      <p className="font-extrabold text-slate-800 text-sm mt-0.5">{selectedApplicant.formState.postulacion.sedeLocal}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 font-semibold">Salón / Aula de Clases:</p>
+                      {selectedApplicant.status === 'enrolled' && selectedApplicant.assignedClassroom ? (
+                        <p className="font-black text-green-700 text-sm pt-1 bg-green-50 px-2 py-1 rounded-lg border border-green-200 mt-1 inline-block">
+                          {selectedApplicant.assignedClassroom}
+                        </p>
+                      ) : (
+                        <p className="text-slate-400 italic pt-1.5">Pendiente de asignación después de la matrícula.</p>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* 6. Nuevo Flujo: Gestión de Pasos de Admisión */}
+                {/* Nuevo Flujo: Gestión de Pasos de Admisión & Aprobaciones */}
                 <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-200/80 space-y-3">
                   <h4 className="text-xs font-black uppercase text-blue-900 tracking-wider flex items-center gap-1.5">
                     <Sparkles className="w-4 h-4 text-blue-600" />
@@ -3502,6 +3900,16 @@ export default function AdminDashboardView({
                           <p className="text-slate-500 font-semibold text-[10px] break-all">
                             📄 {selectedApplicant.paymentComprobante}
                           </p>
+                          <div className="space-y-1 text-[10px] text-slate-500 bg-slate-50 p-1.5 rounded-lg font-mono">
+                            <p>Monto: S/. {selectedApplicant.paymentAmount || '350.00'}</p>
+                            <p>Código: {selectedApplicant.paymentCode || `OP-${selectedApplicant.id}`}</p>
+                            {selectedApplicant.paymentApprover && (
+                              <p className="text-emerald-700 font-bold">Validador: {selectedApplicant.paymentApprover}</p>
+                            )}
+                            {selectedApplicant.paymentApprovedAt && (
+                              <p className="text-emerald-700 font-bold">Fecha Val: {selectedApplicant.paymentApprovedAt}</p>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-[10px] font-bold text-slate-500">Estado:</span>
                             <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
@@ -3521,7 +3929,9 @@ export default function AdminDashboardView({
                                 onClick={() => {
                                   const updated = {
                                     ...selectedApplicant,
-                                    paymentState: 'paid' as const
+                                    paymentState: 'paid' as const,
+                                    paymentApprover: currentUser?.nombres || currentUser?.username || 'Administrador',
+                                    paymentApprovedAt: new Date().toLocaleDateString('es-PE')
                                   };
                                   onSaveRecord(updated);
                                   setSelectedApplicant(updated);
@@ -3563,6 +3973,8 @@ export default function AdminDashboardView({
                           <div className="text-[10px] text-slate-600 leading-tight">
                             <p><strong>Fecha:</strong> {selectedApplicant.appointment.dateLabel || selectedApplicant.appointment.date}</p>
                             <p><strong>Horario:</strong> {selectedApplicant.appointment.timeSlot || selectedApplicant.appointment.time}</p>
+                            <p><strong>Especialista:</strong> {selectedApplicant.appointment.psychologist || 'Por designar'}</p>
+                            <p><strong>Obs:</strong> {selectedApplicant.appointment.observations || 'Sin observaciones'}</p>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-[10px] font-bold text-slate-500">Asistencia:</span>
@@ -3614,12 +4026,13 @@ export default function AdminDashboardView({
                               <div className="text-[10px] text-slate-600 leading-tight">
                                 <p><strong>Fecha:</strong> {selectedApplicant.academicEvaluation.dateLabel}</p>
                                 <p><strong>Horario:</strong> {selectedApplicant.academicEvaluation.timeSlot}</p>
+                                <p><strong>Obs:</strong> {selectedApplicant.academicEvaluation.observations || 'Sin observaciones'}</p>
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[10px] font-bold text-slate-500">Asistencia:</span>
                                 <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
                                   selectedApplicant.academicEvaluationApproved ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
-                                }`}>
+                                }}`}>
                                   {selectedApplicant.academicEvaluationApproved ? 'Aprobada ✓' : 'Pendiente'}
                                 </span>
                               </div>

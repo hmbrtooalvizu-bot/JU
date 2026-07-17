@@ -1811,25 +1811,18 @@ export default function DashboardView({
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-4">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 uppercase">Previsualización de su Ficha de Admisión</h3>
-                <p className="text-xs text-slate-500">Asegúrese de que todos los datos registrados sean válidos e imprima su constancia oficial.</p>
+                <p className="text-xs text-slate-500">Asegúrese de que todos los datos registrados sean válidos y descargue su expediente completo en PDF.</p>
               </div>
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                 <button
                   onClick={() => {
-                    downloadConstanciaPDF(currentUser.formState);
-                    triggerToast("📥 Descargando Constancia en PDF...");
+                    downloadConstanciaPDF(currentUser.formState, currentUser);
+                    triggerToast("📥 Descargando Expediente Completo en PDF...");
                   }}
                   className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 px-5 rounded-xl transition duration-150 flex items-center justify-center gap-2 text-xs shadow-md cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
                   <span>Descargar PDF</span>
-                </button>
-                <button
-                  onClick={() => window.print()}
-                  className="w-full sm:w-auto bg-slate-950 hover:bg-slate-800 text-white font-bold py-2.5 px-5 rounded-xl transition duration-150 flex items-center justify-center gap-2 text-xs shadow-md cursor-pointer"
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>Imprimir Constancia</span>
                 </button>
               </div>
             </div>
@@ -1870,7 +1863,7 @@ export default function DashboardView({
             <div className="bg-amber-50 rounded-2xl border border-amber-200/60 p-4 flex gap-3 text-xs text-amber-900 leading-normal">
               <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
               <div>
-                <strong>Descarga de PDF habilitada:</strong> Para guardar este registro oficial como archivo PDF en su computadora o celular, haga clic en el botón <strong>"Imprimir Constancia PDF"</strong> de arriba y en el diálogo de impresión seleccione la opción <strong>"Guardar como PDF"</strong> o <strong>"Destino: Microsoft Print to PDF"</strong>.
+                <strong>Descarga de PDF habilitada:</strong> Para guardar este registro oficial como archivo PDF en su computadora o celular, haga clic en el botón <strong>"Descargar PDF"</strong> de arriba. El documento se generará automáticamente con toda la información y estado actual de su postulación.
               </div>
             </div>
           </div>
