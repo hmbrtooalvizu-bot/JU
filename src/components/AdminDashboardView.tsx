@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { 
   Users, 
   UserCheck, 
@@ -215,7 +215,56 @@ export default function AdminDashboardView({
     };
   });
 
-  // Reload custom metrics when user changes
+  // Metric cards order state for drag and drop
+  const [metricsOrder, setMetricsOrder] = useState<string[]>(() => {
+    const userKey = currentUser?.username || currentUser?.id || 'anonymous';
+    const saved = localStorage.getItem(`jc_metrics_order_${userKey}`);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (e) {}
+    }
+    return [
+      'total_applicants',
+      'pending_approval',
+      'ready_for_completion',
+      'documents_pending',
+      'documents_submitted',
+      'documents_verified',
+      'payments_pending',
+      'payments_approved',
+      'appointments_scheduled',
+      'appointments_completed',
+      'academic_scheduled',
+      'academic_completed',
+      'admitted',
+      'enrolled',
+      'waiting_list',
+      'observed',
+      'vacancies_available',
+      'vacancies_occupied',
+      'admission_revenue'
+    ];
+  });
+
+  const [draggedMetricIndex, setDraggedMetricIndex] = useState<number | null>(null);
+
+  const handleDragOverMetric = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedMetricIndex === null || draggedMetricIndex === targetIndex) return;
+    
+    const updated = [...metricsOrder];
+    const [draggedItem] = updated.splice(draggedMetricIndex, 1);
+    updated.splice(targetIndex, 0, draggedItem);
+    
+    setMetricsOrder(updated);
+    setDraggedMetricIndex(targetIndex);
+  };
+
+  // Reload custom metrics and order when user changes
   useEffect(() => {
     const userKey = currentUser?.username || currentUser?.id || 'anonymous';
     const stored = localStorage.getItem(`jc_visible_metrics_${userKey}`);
@@ -245,6 +294,35 @@ export default function AdminDashboardView({
         vacancies_occupied: true,
         admission_revenue: true,
       });
+    }
+
+    const savedOrder = localStorage.getItem(`jc_metrics_order_${userKey}`);
+    if (savedOrder) {
+      try {
+        setMetricsOrder(JSON.parse(savedOrder));
+      } catch (e) {}
+    } else {
+      setMetricsOrder([
+        'total_applicants',
+        'pending_approval',
+        'ready_for_completion',
+        'documents_pending',
+        'documents_submitted',
+        'documents_verified',
+        'payments_pending',
+        'payments_approved',
+        'appointments_scheduled',
+        'appointments_completed',
+        'academic_scheduled',
+        'academic_completed',
+        'admitted',
+        'enrolled',
+        'waiting_list',
+        'observed',
+        'vacancies_available',
+        'vacancies_occupied',
+        'admission_revenue'
+      ]);
     }
   }, [currentUser]);
 
@@ -327,6 +405,35 @@ export default function AdminDashboardView({
   const [activeInputStage, setActiveInputStage] = useState<string | null>(null);
   const [inputType, setInputType] = useState<'observation' | 'rejection' | null>(null);
   const [reasonText, setReasonText] = useState('');
+
+  // Super Administrador check
+  const isSuperAdmin = currentUser?.roleAdmin === 'Super Administrador' || currentUser?.id === 'ADMIN-MASTER' || currentUser?.username === 'admin';
+
+  // Menu order state for reorderable sidebar modules
+  const [menuOrder, setMenuOrder] = useState<string[]>(() => {
+    const saved = localStorage.getItem('admin_menu_order');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Check that it only contains our valid keys
+          const validKeys = ['applicants', 'reports', 'branches_districts', 'users'];
+          const filtered = parsed.filter(key => validKeys.includes(key));
+          if (filtered.length === validKeys.length) {
+            return filtered;
+          }
+        }
+      } catch (e) {
+        // Ignore parsing errors
+      }
+    }
+    return ['applicants', 'reports', 'branches_districts', 'users'];
+  });
+
+  // Save menu order automatically
+  useEffect(() => {
+    localStorage.setItem('admin_menu_order', JSON.stringify(menuOrder));
+  }, [menuOrder]);
 
   // Drag and drop states for columns
   const [draggedDistrictIndex, setDraggedDistrictIndex] = useState<number | null>(null);
@@ -1520,6 +1627,46 @@ export default function AdminDashboardView({
     }
   };
 
+  const getMenuItemConfig = (id: string) => {
+    switch (id) {
+      case 'applicants':
+        return {
+          id: 'applicants',
+          label: 'Gestión Postulantes',
+          icon: Users,
+          hasPerm: hasPermission('Ver Dashboard'),
+          badge: countTotalApplicants,
+          onClick: () => setActiveTab('applicants')
+        };
+      case 'reports':
+        return {
+          id: 'reports',
+          label: 'Reportes & Vacantes',
+          icon: FileText,
+          hasPerm: hasPermission('Ver reportes'),
+          onClick: () => setActiveTab('reports')
+        };
+      case 'branches_districts':
+        return {
+          id: 'branches_districts',
+          label: 'Distritos, Sedes y Grados',
+          icon: School,
+          hasPerm: hasPermission('Administrar sedes') || hasPermission('Configuración del sistema'),
+          onClick: () => setActiveTab('branches_districts')
+        };
+      case 'users':
+        return {
+          id: 'users',
+          label: 'Gestión de Usuarios',
+          icon: UserCheck,
+          hasPerm: hasPermission('Administrar usuarios'),
+          onClick: () => setActiveTab('users')
+        };
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="w-full max-w-7xl mx-auto pb-12 px-4 sm:px-6">
       {/* Mobile/Tablet Header with Hamburger Menu Button */}
@@ -1594,78 +1741,35 @@ export default function AdminDashboardView({
                     Menú de Control
                   </span>
 
-                  {hasPermission('Ver Dashboard') && (
-                    <button
-                      onClick={() => {
-                        setActiveTab('applicants');
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 py-3 px-3.5 rounded-xl font-bold text-sm transition text-left cursor-pointer ${
-                        activeTab === 'applicants'
-                          ? 'bg-brand-navy text-white shadow-sm'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                      }`}
-                    >
-                      <Users className="w-5 h-5 shrink-0" />
-                      <span>Gestión Postulantes</span>
-                      <span className={`ml-auto text-[10px] px-2.5 py-0.5 rounded-full font-bold ${
-                        activeTab === 'applicants' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {countTotalApplicants}
-                      </span>
-                    </button>
-                  )}
-
-                  {hasPermission('Ver reportes') && (
-                    <button
-                      onClick={() => {
-                        setActiveTab('reports');
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 py-3 px-3.5 rounded-xl font-bold text-sm transition text-left cursor-pointer ${
-                        activeTab === 'reports'
-                          ? 'bg-brand-navy text-white shadow-sm'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                      }`}
-                    >
-                      <FileText className="w-5 h-5 shrink-0" />
-                      <span>Reportes & Vacantes</span>
-                    </button>
-                  )}
-
-                  {(hasPermission('Administrar sedes') || hasPermission('Configuración del sistema')) && (
-                    <button
-                      onClick={() => {
-                        setActiveTab('branches_districts');
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 py-3 px-3.5 rounded-xl font-bold text-sm transition text-left cursor-pointer ${
-                        activeTab === 'branches_districts'
-                          ? 'bg-brand-navy text-white shadow-sm'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                      }`}
-                    >
-                      <School className="w-5 h-5 shrink-0" />
-                      <span>Distritos, Sedes y Grados</span>
-                    </button>
-                  )}
-
-                  {hasPermission('Administrar usuarios') && (
-                    <button
-                      onClick={() => {
-                        setActiveTab('users');
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 py-3 px-3.5 rounded-xl font-bold text-sm transition text-left cursor-pointer ${
-                        activeTab === 'users'
-                          ? 'bg-brand-navy text-white shadow-sm'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                      }`}
-                    >
-                      <UserCheck className="w-5 h-5 shrink-0" />
-                      <span>Gestión de Usuarios</span>
-                    </button>
-                  )}
+                  {menuOrder.map(menuId => {
+                    const cfg = getMenuItemConfig(menuId);
+                    if (!cfg || !cfg.hasPerm) return null;
+                    const Icon = cfg.icon;
+                    return (
+                      <button
+                        key={cfg.id}
+                        onClick={() => {
+                          cfg.onClick();
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-3 py-3 px-3.5 rounded-xl font-bold text-sm transition text-left cursor-pointer ${
+                          activeTab === cfg.id
+                            ? 'bg-brand-navy text-white shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Icon className="w-5 h-5 shrink-0" />
+                        <span>{cfg.label}</span>
+                        {cfg.badge !== undefined && (
+                          <span className={`ml-auto text-[10px] px-2.5 py-0.5 rounded-full font-bold ${
+                            activeTab === cfg.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {cfg.badge}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Capacity Progress widget in drawer */}
@@ -1778,100 +1882,80 @@ export default function AdminDashboardView({
           {/* Navigation Menu */}
           <div className="space-y-1">
             {!isCollapsed && (
-              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block px-2 mb-2">
-                Menú de Control
-              </span>
-            )}
-            
-            {hasPermission('Ver Dashboard') && (
-              <button
-                onClick={() => setActiveTab('applicants')}
-                title="Gestión Postulantes"
-                className={`w-full flex items-center transition text-left cursor-pointer relative ${
-                  isCollapsed 
-                    ? 'justify-center p-3 rounded-2xl' 
-                    : 'gap-2.5 py-2.5 px-3 rounded-xl'
-                } ${
-                  activeTab === 'applicants'
-                    ? 'bg-brand-navy text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`}
-              >
-                <Users className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
-                {!isCollapsed && (
-                  <>
-                    <span className="font-bold text-xs">Gestión Postulantes</span>
-                    <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                      activeTab === 'applicants' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      {countTotalApplicants}
-                    </span>
-                  </>
-                )}
-                {isCollapsed && (
-                  <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[8px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
-                    {countTotalApplicants}
+              <div className="flex justify-between items-center px-2 mb-2">
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                  Menú de Control
+                </span>
+                {isSuperAdmin && (
+                  <span className="text-[8px] bg-indigo-50 text-indigo-600 font-bold px-1.5 py-0.5 rounded border border-indigo-100" title="Arrastre para reordenar">
+                    Reordenable ↕
                   </span>
                 )}
-              </button>
+              </div>
             )}
+            
+            <Reorder.Group
+              axis="y"
+              values={menuOrder}
+              onReorder={setMenuOrder}
+              className="space-y-1"
+            >
+              {menuOrder.map(menuId => {
+                const cfg = getMenuItemConfig(menuId);
+                if (!cfg || !cfg.hasPerm) return null;
+                const Icon = cfg.icon;
+                const isActive = activeTab === cfg.id;
 
-            {hasPermission('Ver reportes') && (
-              <button
-                onClick={() => setActiveTab('reports')}
-                title="Reportes & Vacantes"
-                className={`w-full flex items-center transition text-left cursor-pointer ${
-                  isCollapsed 
-                    ? 'justify-center p-3 rounded-2xl' 
-                    : 'gap-2.5 py-2.5 px-3 rounded-xl'
-                } ${
-                  activeTab === 'reports'
-                    ? 'bg-brand-navy text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`}
-              >
-                <FileText className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
-                {!isCollapsed && <span className="font-bold text-xs">Reportes & Vacantes</span>}
-              </button>
-            )}
+                return (
+                  <Reorder.Item
+                    key={cfg.id}
+                    value={cfg.id}
+                    drag={isSuperAdmin && !isCollapsed ? "y" : false}
+                    dragConstraints={{ top: 0, bottom: 0 }}
+                    dragElastic={0.1}
+                    className="select-none"
+                  >
+                    <button
+                      onClick={cfg.onClick}
+                      title={cfg.label}
+                      className={`w-full flex items-center transition text-left cursor-pointer relative ${
+                        isCollapsed 
+                          ? 'justify-center p-3 rounded-2xl' 
+                          : 'gap-2.5 py-2.5 px-3 rounded-xl'
+                      } ${
+                        isActive
+                          ? 'bg-brand-navy text-white shadow-sm font-black'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-bold'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {isSuperAdmin && !isCollapsed && (
+                          <GripVertical className="w-3.5 h-3.5 text-slate-300 hover:text-slate-500 cursor-grab shrink-0 -ml-1" />
+                        )}
+                        <Icon className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+                        {!isCollapsed && (
+                          <span className="text-xs truncate">{cfg.label}</span>
+                        )}
+                      </div>
 
-            {(hasPermission('Administrar sedes') || hasPermission('Configuración del sistema')) && (
-              <button
-                onClick={() => setActiveTab('branches_districts')}
-                title="Distritos, Sedes y Grados"
-                className={`w-full flex items-center transition text-left cursor-pointer ${
-                  isCollapsed 
-                    ? 'justify-center p-3 rounded-2xl' 
-                    : 'gap-2.5 py-2.5 px-3 rounded-xl'
-                } ${
-                  activeTab === 'branches_districts'
-                    ? 'bg-brand-navy text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`}
-              >
-                <School className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
-                {!isCollapsed && <span className="font-bold text-xs">Distritos, Sedes y Grados</span>}
-              </button>
-            )}
+                      {!isCollapsed && cfg.badge !== undefined && (
+                        <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                          isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          {cfg.badge}
+                        </span>
+                      )}
 
-            {hasPermission('Administrar usuarios') && (
-              <button
-                onClick={() => setActiveTab('users')}
-                title="Gestión de Usuarios"
-                className={`w-full flex items-center transition text-left cursor-pointer ${
-                  isCollapsed 
-                    ? 'justify-center p-3 rounded-2xl' 
-                    : 'gap-2.5 py-2.5 px-3 rounded-xl'
-                } ${
-                  activeTab === 'users'
-                    ? 'bg-brand-navy text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`}
-              >
-                <UserCheck className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
-                {!isCollapsed && <span className="font-bold text-xs">Gestión de Usuarios</span>}
-              </button>
-            )}
+                      {isCollapsed && cfg.badge !== undefined && (
+                        <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[8px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                          {cfg.badge}
+                        </span>
+                      )}
+                    </button>
+                  </Reorder.Item>
+                );
+              })}
+            </Reorder.Group>
           </div>
 
           {/* Capacity Progress widget inside sidebar */}
@@ -1966,7 +2050,7 @@ export default function AdminDashboardView({
               </p>
             </div>
 
-            {hasPermission('Exportar reportes') && (
+            {hasPermission('Exportar reportes') && activeTab === 'reports' && (
               <div className="flex flex-wrap gap-2 shrink-0 w-full md:w-auto">
                 <button
                   onClick={exportReportsPDF}
@@ -1986,85 +2070,129 @@ export default function AdminDashboardView({
             )}
           </div>
 
-          {/* Metrics Grid Header & Customization Button */}
-          {hasPermission('Ver estadísticas') && (
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-1 px-1">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <span>Indicadores de Admisión</span>
-              </h3>
-              <button
-                onClick={() => setIsCustomizingDashboard(true)}
-                className="text-xs font-bold text-indigo-600 hover:text-indigo-850 flex items-center gap-1.5 transition bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl cursor-pointer border border-indigo-100"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-                <span>Personalizar Dashboard</span>
-              </button>
-            </div>
-          )}
+          {/* Main Dashboard Indicators Section */}
+          {hasPermission('Ver estadísticas') && activeTab === 'reports' && (
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4 transition-all duration-300">
+              {/* Metrics Grid Header */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 px-1">
+                <div className="space-y-0.5">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
+                    <span>Indicadores de Admisión</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 leading-normal">
+                    Arrastre y suelte los indicadores para colocarlos en el orden que prefiera. Use el botón de la derecha para personalizar cuáles ver.
+                  </p>
+                </div>
+                
+                <button
+                  onClick={() => setIsCustomizingDashboard(true)}
+                  className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 border border-indigo-100"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Personalizar Dashboard</span>
+                </button>
+              </div>
 
-          {/* Metrics Grid */}
-          {hasPermission('Ver estadísticas') ? (
-            (() => {
-              const visibleList = ALL_METRIC_CONFIGS.filter(cfg => {
-                // Respect income permission restriction
-                if (cfg.isIncome && !canViewIncome) {
-                  return false;
+              {/* Metrics Grid */}
+              {(() => {
+                // Find any keys in ALL_METRIC_CONFIGS that are missing in metricsOrder
+                const missingKeys = ALL_METRIC_CONFIGS.filter(cfg => !metricsOrder.includes(cfg.key)).map(cfg => cfg.key);
+                const fullOrder = [...metricsOrder, ...missingKeys];
+
+                const visibleList = fullOrder
+                  .map(key => ALL_METRIC_CONFIGS.find(cfg => cfg.key === key))
+                  .filter((cfg): cfg is NonNullable<typeof cfg> => {
+                    if (!cfg) return false;
+                    // Respect income permission restriction
+                    if (cfg.isIncome && !canViewIncome) {
+                      return false;
+                    }
+                    return visibleMetrics[cfg.key] !== false;
+                  });
+
+                if (visibleList.length === 0) {
+                  return (
+                    <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-8 text-center space-y-2">
+                      <p className="text-xs text-slate-500 font-medium">Todos los indicadores estadísticos están ocultos.</p>
+                      <button
+                        onClick={() => setIsCustomizingDashboard(true)}
+                        className="text-xs font-bold text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Personalizar Dashboard
+                      </button>
+                    </div>
+                  );
                 }
-                return visibleMetrics[cfg.key] !== false;
-              });
 
-              if (visibleList.length === 0) {
+                const handleReorderMetric = (draggedIndex: number, hoverIndex: number) => {
+                  if (draggedIndex === hoverIndex) return;
+                  const newVisibleList = [...visibleList];
+                  const [draggedItem] = newVisibleList.splice(draggedIndex, 1);
+                  newVisibleList.splice(hoverIndex, 0, draggedItem);
+
+                  // Rebuild full metricsOrder: visible ones first in their new order, followed by invisible ones
+                  const visibleKeys = newVisibleList.map(item => item.key);
+                  const invisibleKeys = ALL_METRIC_CONFIGS
+                    .map(cfg => cfg.key)
+                    .filter(key => !visibleKeys.includes(key));
+                  
+                  const newOrder = [...visibleKeys, ...invisibleKeys];
+                  setMetricsOrder(newOrder);
+                  setDraggedMetricIndex(hoverIndex);
+                };
+
                 return (
-                  <div className="bg-slate-50 border border-dashed border-slate-300 rounded-3xl p-6 text-center space-y-2">
-                    <p className="text-xs text-slate-500 font-medium">Todos los indicadores estadísticos están ocultos.</p>
-                    <button
-                      onClick={() => setIsCustomizingDashboard(true)}
-                      className="text-xs font-bold text-indigo-600 hover:underline inline-flex items-center gap-1"
-                    >
-                      <Pencil className="w-3 h-3" />
-                      Personalizar Dashboard
-                    </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {visibleList.map((cfg, index) => {
+                      const IconComponent = cfg.icon;
+                      const rawValue = cfg.getValue();
+                      const displayedValue = cfg.format ? cfg.format(rawValue) : rawValue;
+                      const isDragged = draggedMetricIndex === index;
+
+                      return (
+                        <div
+                          key={cfg.key}
+                          draggable={true}
+                          onDragStart={() => setDraggedMetricIndex(index)}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            if (draggedMetricIndex !== null) {
+                              handleReorderMetric(draggedMetricIndex, index);
+                            }
+                          }}
+                          onDragEnd={() => setDraggedMetricIndex(null)}
+                          className={`bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-3.5 hover:border-slate-300 hover:shadow-md transition-all duration-200 select-none cursor-grab active:cursor-grabbing relative group ${
+                            isDragged ? 'opacity-40 border-dashed border-indigo-400 bg-indigo-50/25 scale-95' : ''
+                          }`}
+                        >
+                          <div className={`p-2.5 rounded-xl border ${cfg.colorClass} shrink-0 transition-transform group-hover:scale-105 duration-200`}>
+                            <IconComponent className="w-5 h-5 sm:w-5.5 sm:h-5.5" />
+                          </div>
+                          
+                          <div className="min-w-0 flex-1">
+                            <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate" title={cfg.label}>
+                              {cfg.label}
+                            </span>
+                            <strong className="block text-lg sm:text-xl font-black text-slate-900 truncate tracking-tight mt-0.5">
+                              {displayedValue}
+                            </strong>
+                            <span className="text-[9px] text-slate-500 font-semibold block truncate mt-0.5" title={cfg.desc}>
+                              {cfg.desc}
+                            </span>
+                          </div>
+
+                          {/* Grab Handle UI Indicator */}
+                          <div className="opacity-0 group-hover:opacity-100 transition duration-150 flex items-center shrink-0">
+                            <GripVertical className="w-4 h-4 text-slate-300 hover:text-slate-500" />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
-              }
-
-              return (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {visibleList.map(cfg => {
-                    const IconComponent = cfg.icon;
-                    const rawValue = cfg.getValue();
-                    const displayedValue = cfg.format ? cfg.format(rawValue) : rawValue;
-                    return (
-                      <div
-                        key={cfg.key}
-                        className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition duration-200"
-                      >
-                        <div className={`p-3 rounded-xl border ${cfg.colorClass} shrink-0`}>
-                          <IconComponent className="w-5 h-5 sm:w-6 sm:h-6" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate" title={cfg.label}>
-                            {cfg.label}
-                          </span>
-                          <strong className="block text-lg sm:text-xl font-black text-slate-900 truncate">
-                            {displayedValue}
-                          </strong>
-                          <span className="text-[9px] text-slate-500 font-semibold block truncate" title={cfg.desc}>
-                            {cfg.desc}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()
-          ) : (
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center">
-              <span className="text-xs font-semibold text-slate-400 flex items-center justify-center gap-1.5">
-                <ShieldAlert className="w-4 h-4 text-slate-400" />
-                Estadísticas de admisión ocultas por política de rol
-              </span>
+              })()}
             </div>
           )}
 
@@ -4095,185 +4223,366 @@ export default function AdminDashboardView({
                       )}
                     </div>
                   </div>
-                </div>
-
-                {/* Nuevo Flujo: Gestión de Pasos de Admisión & Aprobaciones */}
-                <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-200/80 space-y-3">
-                  <h4 className="text-xs font-black uppercase text-blue-900 tracking-wider flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-blue-600" />
-                    <span>Control de Pasos de Admisión & Aprobaciones</span>
-                  </h4>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
                     {/* A. Validación de Pago Derecho de Admisión */}
-                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
-                      <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider">
-                        1. Pago Derecho de Admisión
-                      </span>
-                      {selectedApplicant.paymentComprobante ? (
-                        <div className="space-y-2">
-                          <p className="text-slate-500 font-semibold text-[10px] break-all">
-                            📄 {selectedApplicant.paymentComprobante}
-                          </p>
-                          <div className="space-y-1 text-[10px] text-slate-500 bg-slate-50 p-1.5 rounded-lg font-mono">
-                            <p>Monto: S/. {selectedApplicant.paymentAmount || '350.00'}</p>
-                            <p>Código: {selectedApplicant.paymentCode || `OP-${selectedApplicant.id}`}</p>
-                            {selectedApplicant.paymentApprover && (
-                              <p className="text-emerald-700 font-bold">Validador: {selectedApplicant.paymentApprover}</p>
-                            )}
-                            {selectedApplicant.paymentApprovedAt && (
-                              <p className="text-emerald-700 font-bold">Fecha Val: {selectedApplicant.paymentApprovedAt}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-bold text-slate-500">Estado:</span>
-                            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
-                              selectedApplicant.paymentState === 'paid' ? 'bg-green-100 text-green-800' :
-                              selectedApplicant.paymentState === 'rejected' ? 'bg-red-100 text-red-800' :
-                              'bg-amber-100 text-amber-800'
-                            }`}>
-                              {selectedApplicant.paymentState === 'paid' ? 'Aprobado ✓' :
-                               selectedApplicant.paymentState === 'rejected' ? 'Rechazado ❌' :
-                               'En revisión'}
-                            </span>
-                          </div>
-                          
-                          {selectedApplicant.paymentState === 'reviewing' && (
-                            <div className="flex gap-1.5 pt-1">
-                              <button
-                                onClick={() => {
-                                  const updated = {
-                                    ...selectedApplicant,
-                                    paymentState: 'paid' as const,
-                                    paymentApprover: currentUser?.nombres || currentUser?.username || 'Administrador',
-                                    paymentApprovedAt: new Date().toLocaleDateString('es-PE')
-                                  };
-                                  onSaveRecord(updated);
-                                  setSelectedApplicant(updated);
-                                  triggerToast("💰 Pago de admisión aprobado con éxito.");
-                                }}
-                                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-black py-1 px-1.5 rounded-lg text-[10px] transition cursor-pointer"
-                              >
-                                Aprobar
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const updated = {
-                                    ...selectedApplicant,
-                                    paymentState: 'rejected' as const
-                                  };
-                                  onSaveRecord(updated);
-                                  setSelectedApplicant(updated);
-                                  triggerToast("❌ Pago de admisión rechazado.");
-                                }}
-                                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-black py-1 px-1.5 rounded-lg text-[10px] transition cursor-pointer"
-                              >
-                                Rechazar
-                              </button>
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2 flex flex-col justify-between">
+                      <div>
+                        <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider mb-1">
+                          1. Pago Derecho de Admisión
+                        </span>
+                        {selectedApplicant.paymentComprobante ? (
+                          <div className="space-y-2">
+                            <p className="text-slate-500 font-semibold text-[10px] break-all">
+                              📄 {selectedApplicant.paymentComprobante}
+                            </p>
+                            <div className="space-y-1 text-[10px] text-slate-500 bg-slate-50 p-1.5 rounded-lg font-mono">
+                              <p>Monto: S/. {selectedApplicant.paymentAmount || '350.00'}</p>
+                              <p>Código: {selectedApplicant.paymentCode || `OP-${selectedApplicant.id}`}</p>
+                              {selectedApplicant.paymentReviewedBy && (
+                                <p className="text-indigo-700 font-bold">Evaluador: {selectedApplicant.paymentReviewedBy}</p>
+                              )}
+                              {selectedApplicant.paymentReviewedAt && (
+                                <p className="text-indigo-700 font-bold">Fecha Eval: {selectedApplicant.paymentReviewedAt}</p>
+                              )}
                             </div>
+                          </div>
+                        ) : (
+                          <p className="text-slate-400 italic text-[11px] pt-1">Ningún comprobante cargado.</p>
+                        )}
+                      </div>
+
+                      {selectedApplicant.paymentComprobante && (
+                        <div className="pt-2">
+                          {renderDecisionPanel(
+                            'payment',
+                            selectedApplicant.paymentState === 'paid' ? 'approved' : selectedApplicant.paymentState === 'observed' ? 'observed' : selectedApplicant.paymentState === 'rejected' ? 'rejected' : undefined,
+                            selectedApplicant.paymentObservation,
+                            selectedApplicant.paymentRejectedReason,
+                            selectedApplicant.paymentReviewedBy,
+                            selectedApplicant.paymentReviewedAt,
+                            () => {
+                              const updated: AdmissionRecord = {
+                                ...selectedApplicant,
+                                paymentState: 'paid',
+                                paymentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                                paymentReviewedAt: new Date().toLocaleString('es-PE'),
+                              };
+                              onSaveRecord(updated);
+                              setSelectedApplicant(updated);
+                              addAuditLog(
+                                'Aprobación de Pago',
+                                `Pago por derecho de admisión aprobado con éxito para ${selectedApplicant.formState.personales.nombres}. El siguiente paso se ha desbloqueado automáticamente.`,
+                                selectedApplicant.id
+                              );
+                              triggerToast("✅ Pago aprobado y siguiente paso desbloqueado.");
+                            },
+                            (reason) => {
+                              const updated: AdmissionRecord = {
+                                ...selectedApplicant,
+                                paymentState: 'observed',
+                                paymentObservation: reason,
+                                paymentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                                paymentReviewedAt: new Date().toLocaleString('es-PE')
+                              };
+                              onSaveRecord(updated);
+                              setSelectedApplicant(updated);
+                              addAuditLog(
+                                'Observación de Pago',
+                                `Pago por derecho de admisión marcado como observado: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
+                                selectedApplicant.id
+                              );
+                              triggerToast("⚠️ Pago marcado como Observado.");
+                            },
+                            (reason) => {
+                              const updated: AdmissionRecord = {
+                                ...selectedApplicant,
+                                paymentState: 'rejected',
+                                paymentRejectedReason: reason,
+                                status: 'rejected',
+                                paymentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                                paymentReviewedAt: new Date().toLocaleString('es-PE')
+                              };
+                              onSaveRecord(updated);
+                              setSelectedApplicant(updated);
+                              addAuditLog(
+                                'Rechazo de Pago',
+                                `Pago por derecho de admisión rechazado permanentemente: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
+                                selectedApplicant.id
+                              );
+                              triggerToast("❌ Pago rechazado permanentemente.");
+                            },
+                            'Pago de Admisión'
                           )}
                         </div>
-                      ) : (
-                        <p className="text-slate-400 italic text-[11px] pt-1">Ningún comprobante cargado.</p>
                       )}
                     </div>
 
                     {/* B. Asistencia Cita Psicopedagógica */}
-                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
-                      <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider">
-                        2. Cita Psicopedagógica
-                      </span>
-                      {selectedApplicant.appointment ? (
-                        <div className="space-y-2">
-                          <div className="text-[10px] text-slate-600 leading-tight">
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2 flex flex-col justify-between">
+                      <div>
+                        <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider mb-1">
+                          2. Cita Psicopedagógica
+                        </span>
+                        {selectedApplicant.appointment ? (
+                          <div className="text-[10px] text-slate-600 leading-tight space-y-1">
                             <p><strong>Fecha:</strong> {selectedApplicant.appointment.dateLabel || selectedApplicant.appointment.date}</p>
                             <p><strong>Horario:</strong> {selectedApplicant.appointment.timeSlot || selectedApplicant.appointment.time}</p>
                             <p><strong>Especialista:</strong> {selectedApplicant.appointment.psychologist || 'Por designar'}</p>
                             <p><strong>Obs:</strong> {selectedApplicant.appointment.observations || 'Sin observaciones'}</p>
                           </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-bold text-slate-500">Asistencia:</span>
-                            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
-                              selectedApplicant.appointmentApproved ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
-                            }`}>
-                              {selectedApplicant.appointmentApproved ? 'Aprobada ✓' : 'Pendiente'}
-                            </span>
-                          </div>
+                        ) : (
+                          <p className="text-slate-400 italic text-[11px] pt-1">Cita no agendada todavía.</p>
+                        )}
+                      </div>
 
-                          {!selectedApplicant.appointmentApproved && (
-                            <button
-                              onClick={() => {
-                                const updated = {
-                                  ...selectedApplicant,
-                                  appointmentApproved: true
-                                };
-                                onSaveRecord(updated);
-                                setSelectedApplicant(updated);
-                                triggerToast("📅 Asistencia a cita psicopedagógica aprobada.");
-                              }}
-                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-1 px-2 rounded-lg text-[10px] transition cursor-pointer"
-                            >
-                              Registrar Asistencia
-                            </button>
+                      {selectedApplicant.appointment && (
+                        <div className="pt-2">
+                          {renderDecisionPanel(
+                            'appointment',
+                            selectedApplicant.appointmentApproved || selectedApplicant.appointmentStatus === 'approved' ? 'approved' : selectedApplicant.appointmentStatus === 'observed' ? 'observed' : selectedApplicant.appointmentStatus === 'rejected' ? 'rejected' : undefined,
+                            selectedApplicant.appointmentObservation,
+                            selectedApplicant.appointmentRejectedReason,
+                            selectedApplicant.appointmentReviewedBy,
+                            selectedApplicant.appointmentReviewedAt,
+                            () => {
+                              const updated: AdmissionRecord = {
+                                ...selectedApplicant,
+                                appointmentApproved: true,
+                                appointmentStatus: 'approved',
+                                appointmentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                                appointmentReviewedAt: new Date().toLocaleString('es-PE')
+                              };
+                              onSaveRecord(updated);
+                              setSelectedApplicant(updated);
+                              addAuditLog(
+                                'Aprobación Cita Psicopedagógica',
+                                `Asistencia y cita psicopedagógica aprobada para ${selectedApplicant.formState.personales.nombres}. Siguiente paso habilitado.`,
+                                selectedApplicant.id
+                              );
+                              triggerToast("✅ Cita aprobada y siguiente paso desbloqueado.");
+                            },
+                            (reason) => {
+                              const updated: AdmissionRecord = {
+                                ...selectedApplicant,
+                                appointmentApproved: false,
+                                appointmentStatus: 'observed',
+                                appointmentObservation: reason,
+                                appointmentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                                appointmentReviewedAt: new Date().toLocaleString('es-PE')
+                              };
+                              onSaveRecord(updated);
+                              setSelectedApplicant(updated);
+                              addAuditLog(
+                                'Observación Cita Psicopedagógica',
+                                `Cita psicopedagógica marcada como observada: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
+                                selectedApplicant.id
+                              );
+                              triggerToast("⚠️ Cita marcada como Observada.");
+                            },
+                            (reason) => {
+                              const updated: AdmissionRecord = {
+                                ...selectedApplicant,
+                                appointmentApproved: false,
+                                appointmentStatus: 'rejected',
+                                appointmentRejectedReason: reason,
+                                status: 'rejected',
+                                appointmentReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                                appointmentReviewedAt: new Date().toLocaleString('es-PE')
+                              };
+                              onSaveRecord(updated);
+                              setSelectedApplicant(updated);
+                              addAuditLog(
+                                'Rechazo Cita Psicopedagógica',
+                                `Cita psicopedagógica rechazada permanentemente: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
+                                selectedApplicant.id
+                              );
+                              triggerToast("❌ Cita rechazada permanentemente.");
+                            },
+                            'Cita Psicopedagógica'
                           )}
                         </div>
-                      ) : (
-                        <p className="text-slate-400 italic text-[11px] pt-1">Cita no agendada todavía.</p>
                       )}
                     </div>
 
                     {/* C. Evaluación Académica (solo grados aplicables) */}
-                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
-                      <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider">
-                        3. Evaluación Académica
-                      </span>
-                      {(() => {
-                        const gradeName = selectedApplicant.formState.postulacion.gradoIngreso;
-                        const requiresEval = gradeName && !gradeName.toLowerCase().includes('inicial');
-                        
-                        if (!requiresEval) {
-                          return <p className="text-slate-400 italic text-[11px] pt-1">No aplica para este grado (Inicial).</p>;
-                        }
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2 flex flex-col justify-between">
+                      <div>
+                        <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider mb-1">
+                          3. Evaluación Académica
+                        </span>
+                        {(() => {
+                          const gradeName = selectedApplicant.formState.postulacion.gradoIngreso;
+                          const requiresEval = gradeName && !gradeName.toLowerCase().includes('inicial');
+                          
+                          if (!requiresEval) {
+                            return <p className="text-slate-400 italic text-[11px] pt-1">No aplica para este grado (Inicial).</p>;
+                          }
 
-                        if (selectedApplicant.academicEvaluation) {
-                          return (
-                            <div className="space-y-2">
-                              <div className="text-[10px] text-slate-600 leading-tight">
+                          if (selectedApplicant.academicEvaluation) {
+                            return (
+                              <div className="text-[10px] text-slate-600 leading-tight space-y-1">
                                 <p><strong>Fecha:</strong> {selectedApplicant.academicEvaluation.dateLabel}</p>
                                 <p><strong>Horario:</strong> {selectedApplicant.academicEvaluation.timeSlot}</p>
                                 <p><strong>Obs:</strong> {selectedApplicant.academicEvaluation.observations || 'Sin observaciones'}</p>
                               </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-bold text-slate-500">Asistencia:</span>
-                                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
-                                  selectedApplicant.academicEvaluationApproved ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
-                                }}`}>
-                                  {selectedApplicant.academicEvaluationApproved ? 'Aprobada ✓' : 'Pendiente'}
-                                </span>
-                              </div>
+                            );
+                          }
 
-                              {!selectedApplicant.academicEvaluationApproved && (
-                                <button
-                                  onClick={() => {
-                                    const updated = {
-                                      ...selectedApplicant,
-                                      academicEvaluationApproved: true
-                                    };
-                                    onSaveRecord(updated);
-                                    setSelectedApplicant(updated);
-                                    triggerToast("📝 Asistencia a evaluación académica aprobada.");
-                                  }}
-                                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-1 px-2 rounded-lg text-[10px] transition cursor-pointer"
-                                >
-                                  Registrar Asistencia
-                                </button>
+                          return <p className="text-slate-400 italic text-[11px] pt-1">Evaluación no agendada todavía.</p>;
+                        })()}
+                      </div>
+
+                      {(() => {
+                        const gradeName = selectedApplicant.formState.postulacion.gradoIngreso;
+                        const requiresEval = gradeName && !gradeName.toLowerCase().includes('inicial');
+                        if (requiresEval && selectedApplicant.academicEvaluation) {
+                          return (
+                            <div className="pt-2">
+                              {renderDecisionPanel(
+                                'academic',
+                                selectedApplicant.academicEvaluationApproved || selectedApplicant.academicEvaluationStatus === 'approved' ? 'approved' : selectedApplicant.academicEvaluationStatus === 'observed' ? 'observed' : selectedApplicant.academicEvaluationStatus === 'rejected' ? 'rejected' : undefined,
+                                selectedApplicant.academicEvaluationObservation,
+                                selectedApplicant.academicEvaluationRejectedReason,
+                                selectedApplicant.academicEvaluationReviewedBy,
+                                selectedApplicant.academicEvaluationReviewedAt,
+                                () => {
+                                  const updated: AdmissionRecord = {
+                                    ...selectedApplicant,
+                                    academicEvaluationApproved: true,
+                                    academicEvaluationStatus: 'approved',
+                                    academicEvaluationReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                                    academicEvaluationReviewedAt: new Date().toLocaleString('es-PE')
+                                  };
+                                  onSaveRecord(updated);
+                                  setSelectedApplicant(updated);
+                                  addAuditLog(
+                                    'Aprobación Evaluación Académica',
+                                    `Evaluación académica aprobada para ${selectedApplicant.formState.personales.nombres}.`,
+                                    selectedApplicant.id
+                                  );
+                                  triggerToast("✅ Evaluación aprobada y siguiente paso desbloqueado.");
+                                },
+                                (reason) => {
+                                  const updated: AdmissionRecord = {
+                                    ...selectedApplicant,
+                                    academicEvaluationApproved: false,
+                                    academicEvaluationStatus: 'observed',
+                                    academicEvaluationObservation: reason,
+                                    academicEvaluationReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                                    academicEvaluationReviewedAt: new Date().toLocaleString('es-PE')
+                                  };
+                                  onSaveRecord(updated);
+                                  setSelectedApplicant(updated);
+                                  addAuditLog(
+                                    'Observación Evaluación Académica',
+                                    `Evaluación académica marcada como observada: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
+                                    selectedApplicant.id
+                                  );
+                                  triggerToast("⚠️ Evaluación marcada como Observada.");
+                                },
+                                (reason) => {
+                                  const updated: AdmissionRecord = {
+                                    ...selectedApplicant,
+                                    academicEvaluationApproved: false,
+                                    academicEvaluationStatus: 'rejected',
+                                    academicEvaluationRejectedReason: reason,
+                                    status: 'rejected',
+                                    academicEvaluationReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                                    academicEvaluationReviewedAt: new Date().toLocaleString('es-PE')
+                                  };
+                                  onSaveRecord(updated);
+                                  setSelectedApplicant(updated);
+                                  addAuditLog(
+                                    'Rechazo Evaluación Académica',
+                                    `Evaluación académica rechazada permanentemente: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
+                                    selectedApplicant.id
+                                  );
+                                  triggerToast("❌ Evaluación rechazada permanentemente.");
+                                },
+                                'Evaluación Académica'
                               )}
                             </div>
                           );
                         }
-
-                        return <p className="text-slate-400 italic text-[11px] pt-1">Evaluación no agendada todavía.</p>;
+                        return null;
                       })()}
+                    </div>
+
+                    {/* D. Estado Final de Admisión */}
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2 flex flex-col justify-between">
+                      <div>
+                        <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider mb-1">
+                          4. Estado Final de Admisión
+                        </span>
+                        <p className="text-[10px] text-slate-500 leading-normal">
+                          Decisión final de ingreso del postulante al plantel educativo.
+                        </p>
+                      </div>
+
+                      <div className="pt-2">
+                        {renderDecisionPanel(
+                          'final',
+                          selectedApplicant.finalStatus || (selectedApplicant.status === 'admitted' || selectedApplicant.status === 'enrolled' ? 'approved' : selectedApplicant.status === 'observed' ? 'observed' : selectedApplicant.status === 'rejected' ? 'rejected' : undefined),
+                          selectedApplicant.finalStatusObservation,
+                          selectedApplicant.finalStatusRejectedReason,
+                          selectedApplicant.finalStatusReviewedBy,
+                          selectedApplicant.finalStatusReviewedAt,
+                          () => {
+                            const updated: AdmissionRecord = {
+                              ...selectedApplicant,
+                              finalStatus: 'approved',
+                              status: 'admitted',
+                              finalStatusReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                              finalStatusReviewedAt: new Date().toLocaleString('es-PE')
+                            };
+                            onSaveRecord(updated);
+                            setSelectedApplicant(updated);
+                            addAuditLog(
+                              'Aprobación Final de Admisión',
+                              `Postulación aprobada de forma final por ${currentUser?.nombres || currentUser?.username || 'Administrador'}. Postulante marcado como Admitido.`,
+                              selectedApplicant.id
+                            );
+                            triggerToast("✅ Postulación admitida de forma final.");
+                          },
+                          (reason) => {
+                            const updated: AdmissionRecord = {
+                              ...selectedApplicant,
+                              finalStatus: 'observed',
+                              finalStatusObservation: reason,
+                              status: 'observed',
+                              finalStatusReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                              finalStatusReviewedAt: new Date().toLocaleString('es-PE')
+                            };
+                            onSaveRecord(updated);
+                            setSelectedApplicant(updated);
+                            addAuditLog(
+                              'Observación Final de Admisión',
+                              `Postulación marcada como observada en revisión final: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
+                              selectedApplicant.id
+                            );
+                            triggerToast("⚠️ Postulación marcada como Observada.");
+                          },
+                          (reason) => {
+                            const updated: AdmissionRecord = {
+                              ...selectedApplicant,
+                              finalStatus: 'rejected',
+                              finalStatusRejectedReason: reason,
+                              status: 'rejected',
+                              finalStatusReviewedBy: currentUser?.nombres || currentUser?.username || 'Administrador',
+                              finalStatusReviewedAt: new Date().toLocaleString('es-PE')
+                            };
+                            onSaveRecord(updated);
+                            setSelectedApplicant(updated);
+                            addAuditLog(
+                              'Rechazo Final de Admisión',
+                              `Postulación rechazada permanentemente en revisión final: "${reason}" por ${currentUser?.nombres || currentUser?.username}.`,
+                              selectedApplicant.id
+                            );
+                            triggerToast("❌ Postulación rechazada permanentemente.");
+                          },
+                          'Estado Final de Admisión'
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
